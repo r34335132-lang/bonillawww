@@ -4,8 +4,23 @@ import { motion } from 'framer-motion'
 import { Clock, Users, Wifi, Plug, Monitor, Bath, Wind, UtensilsCrossed, ArrowRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import type { Trip } from '@/lib/data'
 import Link from 'next/link'
+
+export interface Trip {
+  id: string | number;
+  origin: string;
+  destination: string;
+  departureTime: string;
+  arrivalTime: string;
+  duration: string;
+  price: number;
+  serviceType: string;
+  busType: string;
+  amenities: string[];
+  availableSeats: number;
+  totalSeats?: number;
+  priceLabel?: string;
+}
 
 const amenityIcons: Record<string, typeof Wifi> = {
   'WiFi': Wifi,
@@ -16,98 +31,93 @@ const amenityIcons: Record<string, typeof Wifi> = {
   'Snacks': UtensilsCrossed,
 }
 
-interface TripCardProps {
-  trip: Trip
-  index: number
-}
-
-export function TripCard({ trip, index }: TripCardProps) {
+export function TripCard({ trip, index }: { trip: Trip; index: number }) {
   const serviceColors: Record<string, string> = {
-    'Primera Clase': 'bg-amber-500/10 text-amber-600 border-amber-200',
-    'Ejecutivo': 'bg-primary/10 text-primary border-primary/20',
-    'Económico': 'bg-emerald-500/10 text-emerald-600 border-emerald-200',
+    'Primera Clase': 'bg-amber-500/15 text-amber-700 border-amber-300 dark:text-amber-400',
+    'Ejecutivo': 'bg-primary/10 text-primary border-primary/30',
+    'Económico': 'bg-blue-500/10 text-blue-600 border-blue-200 dark:text-blue-400',
   }
+
+  const total = trip.totalSeats || 40;
+  const isAlmostFull = trip.availableSeats < (total * 0.2);
 
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4, delay: index * 0.1 }}
-      className="group glass-card overflow-hidden rounded-2xl transition-all duration-300 hover:shadow-lg hover:shadow-primary/5"
+      className="group bg-card border border-border/60 overflow-hidden rounded-3xl transition-all duration-300 hover:shadow-xl hover:shadow-primary/5 hover:border-primary/40"
     >
-      <div className="p-6">
-        <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
-          {/* Time and Route */}
-          <div className="flex flex-1 items-center gap-6">
-            {/* Departure */}
-            <div className="text-center">
-              <div className="text-2xl font-bold text-foreground">{trip.departureTime}</div>
-              <div className="text-sm text-muted-foreground">{trip.origin.split(',')[0]}</div>
+      <div className="p-5 sm:p-6">
+        <div className="flex flex-col lg:flex-row gap-6 items-stretch justify-between">
+
+          {/* --- BLOQUE 1: TIEMPOS Y RUTA --- */}
+          <div className="flex flex-1 items-center justify-between gap-2 sm:gap-4 w-full">
+            <div className="text-center min-w-[70px]">
+              <div className="text-3xl font-black text-foreground tracking-tight">{trip.departureTime}</div>
+              <div className="text-xs font-bold text-muted-foreground uppercase">{trip.origin.substring(0, 3)}</div>
             </div>
 
-            {/* Duration Line */}
-            <div className="flex flex-1 items-center">
-              <div className="h-2 w-2 rounded-full bg-primary" />
-              <div className="relative flex-1">
-                <div className="h-px w-full bg-border" />
-                <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
-                  <div className="flex items-center gap-1 rounded-full bg-muted px-2 py-0.5">
-                    <Clock className="h-3 w-3 text-muted-foreground" />
-                    <span className="text-xs font-medium text-muted-foreground">{trip.duration}</span>
-                  </div>
+            <div className="flex flex-1 flex-col items-center px-2">
+              <span className="text-[10px] font-bold text-muted-foreground mb-1 uppercase tracking-widest">{trip.duration}</span>
+              <div className="w-full flex items-center relative">
+                <div className="h-2.5 w-2.5 rounded-full border-[2px] border-primary bg-background z-10 shrink-0" />
+                <div className="flex-1 h-[2px] bg-border relative overflow-hidden">
+                  <div className="absolute top-0 left-0 h-full w-0 bg-primary group-hover:w-full transition-all duration-700 ease-out"/>
                 </div>
+                <div className="h-2.5 w-2.5 rounded-full bg-primary z-10 shrink-0" />
               </div>
-              <div className="h-2 w-2 rounded-full bg-accent" />
             </div>
 
-            {/* Arrival */}
-            <div className="text-center">
-              <div className="text-2xl font-bold text-foreground">{trip.arrivalTime}</div>
-              <div className="text-sm text-muted-foreground">{trip.destination.split(',')[0]}</div>
+            <div className="text-center min-w-[70px]">
+              <div className="text-3xl font-black text-foreground tracking-tight">{trip.arrivalTime}</div>
+              <div className="text-xs font-bold text-muted-foreground uppercase">{trip.destination.substring(0, 3)}</div>
             </div>
           </div>
 
-          {/* Service Info */}
-          <div className="flex flex-col items-center gap-2 lg:items-end">
-            <Badge variant="outline" className={serviceColors[trip.serviceType]}>
-              {trip.serviceType}
-            </Badge>
-            <div className="text-sm text-muted-foreground">{trip.busType}</div>
+          <div className="h-px w-full bg-border/50 lg:hidden" />
+
+          {/* --- BLOQUE 2: INFO DEL BUS Y ASIENTOS --- */}
+          <div className="flex flex-row lg:flex-col items-center justify-between lg:justify-center gap-3 w-full lg:w-auto lg:px-8 lg:border-l border-border/50 shrink-0">
+            <div className="flex flex-col items-start lg:items-center gap-2">
+              <Badge variant="outline" className={`px-3 py-1 font-bold ${serviceColors[trip.serviceType] || serviceColors['Ejecutivo']}`}>
+                {trip.serviceType || 'Ejecutivo'}
+              </Badge>
+              <div className="flex gap-1.5 flex-wrap max-w-[120px] justify-start lg:justify-center">
+                {trip.amenities?.slice(0, 4).map((amenity) => {
+                  const Icon = amenityIcons[amenity] || Wifi;
+                  return <Icon key={amenity} className="size-4 text-muted-foreground" title={amenity} />
+                })}
+              </div>
+            </div>
+
+            <div className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold mt-1 ${isAlmostFull ? 'bg-red-500/10 text-red-600' : 'bg-emerald-500/10 text-emerald-600'}`}>
+              <Users className="size-3.5" />
+              {trip.availableSeats} libres
+            </div>
           </div>
 
-          {/* Amenities */}
-          <div className="flex flex-wrap items-center gap-2 lg:max-w-[200px]">
-            {trip.amenities.slice(0, 5).map((amenity) => {
-              const Icon = amenityIcons[amenity]
-              return Icon ? (
-                <div
-                  key={amenity}
-                  className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted/50 transition-colors group-hover:bg-primary/10"
-                  title={amenity}
-                >
-                  <Icon className="h-4 w-4 text-muted-foreground group-hover:text-primary" />
-                </div>
-              ) : null
-            })}
-          </div>
+          <div className="h-px w-full bg-border/50 lg:hidden" />
 
-          {/* Price and CTA */}
-          <div className="flex items-center gap-4 lg:flex-col lg:items-end">
-            <div className="flex items-center gap-1 text-sm text-muted-foreground">
-              <Users className="h-4 w-4" />
-              <span>{trip.availableSeats} disponibles</span>
+          {/* --- BLOQUE 3: PRECIO Y BOTÓN --- */}
+          <div className="flex flex-row lg:flex-col items-center lg:items-end justify-between gap-4 w-full lg:w-auto shrink-0 lg:min-w-[180px]">
+            <div className="flex flex-col items-start lg:items-end">
+              <span className="text-[10px] font-black text-primary uppercase tracking-widest mb-[-4px]">
+                {trip.priceLabel || 'Sencillo'}
+              </span>
+              <div className="flex items-baseline gap-1">
+                <span className="text-sm font-bold text-muted-foreground">MXN</span>
+                <span className="text-3xl sm:text-4xl font-black text-foreground tracking-tighter">${trip.price}</span>
+              </div>
             </div>
-            <div className="flex items-baseline gap-1">
-              <span className="text-sm text-muted-foreground">MXN</span>
-              <span className="text-3xl font-bold text-primary">${trip.price}</span>
-            </div>
-            <Link href={`/seats?tripId=${trip.id}`}>
-              <Button className="gap-2 transition-all hover:scale-105">
-                Seleccionar
-                <ArrowRight className="h-4 w-4" />
+
+            <Link href={`/seats?tripId=${trip.id}&price=${trip.price}&label=${trip.priceLabel || 'Sencillo'}&origin=${trip.origin}&destination=${trip.destination}`} className="w-full sm:w-auto mt-auto">
+              <Button className="w-full bg-primary text-white h-11 px-6 rounded-xl font-bold hover:scale-[1.02] transition-transform shadow-md">
+                Seleccionar <ArrowRight className="size-4 ml-2 hidden sm:inline" />
               </Button>
             </Link>
           </div>
+
         </div>
       </div>
     </motion.div>

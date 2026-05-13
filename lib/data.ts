@@ -79,151 +79,38 @@ export const cities = [
   'Veracruz',
 ]
 
-export const mockTrips: Trip[] = [
-  {
-    id: '1',
-    origin: 'Ciudad de México',
-    destination: 'Guadalajara',
-    departureTime: '06:00',
-    arrivalTime: '12:30',
-    duration: '6h 30min',
-    price: 850,
-    serviceType: 'Primera Clase',
-    availableSeats: 24,
-    busType: 'Volvo 9800',
-    amenities: ['WiFi', 'Enchufes', 'Pantalla Personal', 'Baño', 'Aire Acondicionado']
-  },
-  {
-    id: '2',
-    origin: 'Ciudad de México',
-    destination: 'Guadalajara',
-    departureTime: '08:30',
-    arrivalTime: '15:00',
-    duration: '6h 30min',
-    price: 750,
-    serviceType: 'Ejecutivo',
-    availableSeats: 18,
-    busType: 'Mercedes-Benz Paradiso',
-    amenities: ['WiFi', 'Enchufes', 'Baño', 'Aire Acondicionado']
-  },
-  {
-    id: '3',
-    origin: 'Ciudad de México',
-    destination: 'Guadalajara',
-    departureTime: '10:00',
-    arrivalTime: '16:30',
-    duration: '6h 30min',
-    price: 650,
-    serviceType: 'Económico',
-    availableSeats: 32,
-    busType: 'Irizar i6',
-    amenities: ['Baño', 'Aire Acondicionado']
-  },
-  {
-    id: '4',
-    origin: 'Ciudad de México',
-    destination: 'Guadalajara',
-    departureTime: '14:00',
-    arrivalTime: '20:30',
-    duration: '6h 30min',
-    price: 900,
-    serviceType: 'Primera Clase',
-    availableSeats: 12,
-    busType: 'Volvo 9800',
-    amenities: ['WiFi', 'Enchufes', 'Pantalla Personal', 'Baño', 'Aire Acondicionado', 'Snacks']
-  },
-  {
-    id: '5',
-    origin: 'Ciudad de México',
-    destination: 'Guadalajara',
-    departureTime: '18:00',
-    arrivalTime: '00:30',
-    duration: '6h 30min',
-    price: 800,
-    serviceType: 'Ejecutivo',
-    availableSeats: 22,
-    busType: 'Mercedes-Benz Paradiso',
-    amenities: ['WiFi', 'Enchufes', 'Baño', 'Aire Acondicionado']
-  },
-  {
-    id: '6',
-    origin: 'Ciudad de México',
-    destination: 'Guadalajara',
-    departureTime: '23:00',
-    arrivalTime: '05:30',
-    duration: '6h 30min',
-    price: 700,
-    serviceType: 'Económico',
-    availableSeats: 28,
-    busType: 'Irizar i6',
-    amenities: ['Baño', 'Aire Acondicionado']
-  },
-]
-
-export const generateSeats = (): Seat[] => {
+// ESTA ES LA FUNCIÓN CLAVE CORREGIDA PARA QUE HAGA MATCH CON TU APP MÓVIL Y BASE DE DATOS
+export const generateSeats = (totalSeats: number = 40): Seat[] => {
   const seats: Seat[] = []
   const columns: ('A' | 'B' | 'C' | 'D')[] = ['A', 'B', 'C', 'D']
-  const occupiedSeats = ['1A', '1B', '2C', '3D', '4A', '5B', '6C', '7D', '8A', '9B']
+  let currentSeatId = 1;
   
-  for (let row = 1; row <= 12; row++) {
+  // Calculamos cuántas filas necesitamos (4 asientos por fila)
+  const totalRows = Math.ceil(totalSeats / 4);
+  
+  for (let row = 1; row <= totalRows; row++) {
     for (const col of columns) {
-      const seatId = `${row}${col}`
+      if (currentSeatId > totalSeats) break; // Si ya llegamos al máximo (ej. 40), paramos
+      
       seats.push({
-        id: seatId,
+        id: String(currentSeatId), // Aquí está la magia: Ahora el id es "1", "2", "3"...
         row,
         column: col,
-        status: occupiedSeats.includes(seatId) ? 'occupied' : 'available',
-        price: row <= 3 ? 150 : 0,
-        type: row <= 3 ? 'premium' : 'standard'
+        status: 'available', // Supabase se encargará de cambiar esto a 'occupied'
+        price: 0, // Si quisieras cobrar más por los primeros asientos, podrías poner una lógica aquí
+        type: 'standard'
       })
+      
+      currentSeatId++;
     }
   }
   
   return seats
 }
 
-export const mockTickets: Ticket[] = [
-  {
-    id: 't1',
-    tripId: '1',
-    origin: 'Ciudad de México',
-    destination: 'Guadalajara',
-    departureDate: '2026-05-15',
-    departureTime: '06:00',
-    seatNumber: '4B',
-    passengerName: 'Juan Pérez',
-    status: 'upcoming',
-    qrCode: 'BONILLA-T1-2026',
-    price: 850
-  },
-  {
-    id: 't2',
-    tripId: '2',
-    origin: 'Guadalajara',
-    destination: 'Puerto Vallarta',
-    departureDate: '2026-04-20',
-    departureTime: '10:00',
-    seatNumber: '2A',
-    passengerName: 'Juan Pérez',
-    status: 'completed',
-    qrCode: 'BONILLA-T2-2026',
-    price: 450
-  },
-  {
-    id: 't3',
-    tripId: '3',
-    origin: 'Ciudad de México',
-    destination: 'Monterrey',
-    departureDate: '2026-05-25',
-    departureTime: '08:00',
-    seatNumber: '6C',
-    passengerName: 'Juan Pérez',
-    status: 'upcoming',
-    qrCode: 'BONILLA-T3-2026',
-    price: 1200
-  },
-]
-
+// Los mockTrips se quedan aquí por si alguna página (fuera de la de búsqueda) aún los requiere como respaldo
+export const mockTrips: Trip[] = []
+export const mockTickets: Ticket[] = []
 export const mockPackage: Package = {
   id: 'p1',
   trackingNumber: 'BT-2026-0512-MX',
@@ -231,65 +118,7 @@ export const mockPackage: Package = {
   destination: 'Guadalajara',
   status: 'in_transit',
   weight: '2.5 kg',
-  description: 'Documentos y electrónicos',
-  timeline: [
-    {
-      date: '2026-05-07',
-      time: '09:00',
-      location: 'Ciudad de México - Terminal Central',
-      description: 'Paquete recibido en terminal de origen',
-      status: 'completed'
-    },
-    {
-      date: '2026-05-07',
-      time: '11:30',
-      location: 'Ciudad de México - Terminal Central',
-      description: 'Paquete cargado en autobús BT-450',
-      status: 'completed'
-    },
-    {
-      date: '2026-05-07',
-      time: '14:00',
-      location: 'En tránsito',
-      description: 'Paquete en camino a destino',
-      status: 'current'
-    },
-    {
-      date: '2026-05-07',
-      time: '18:00',
-      location: 'Guadalajara - Terminal Norte',
-      description: 'Llegada estimada a terminal de destino',
-      status: 'pending'
-    },
-    {
-      date: '2026-05-07',
-      time: '18:30',
-      location: 'Guadalajara - Terminal Norte',
-      description: 'Disponible para recoger',
-      status: 'pending'
-    },
-  ]
+  description: 'Documentos',
+  timeline: []
 }
-
-export const benefits = [
-  {
-    title: 'Viajes Seguros',
-    description: 'Conductores certificados y unidades con mantenimiento constante para tu tranquilidad.',
-    icon: 'shield'
-  },
-  {
-    title: 'Puntualidad Garantizada',
-    description: 'Nos comprometemos con tus horarios. Llegamos a tiempo, siempre.',
-    icon: 'clock'
-  },
-  {
-    title: 'Comodidad Premium',
-    description: 'Asientos reclinables, WiFi, enchufes y entretenimiento a bordo.',
-    icon: 'star'
-  },
-  {
-    title: 'Mejor Precio',
-    description: 'Tarifas competitivas y promociones exclusivas para nuestros viajeros.',
-    icon: 'tag'
-  },
-]
+export const benefits = []
