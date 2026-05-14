@@ -48,7 +48,7 @@ function CheckoutContent() {
   const [paymentMethod, setPaymentMethod] = useState<'card' | 'reserve'>('card')
 
   useEffect(() => {
-    // Check if user is logged in
+    // Verificar si el usuario tiene sesión iniciada
     const checkUser = async () => {
       const { data: { session } } = await supabase.auth.getSession()
       if (session?.user) {
@@ -65,7 +65,8 @@ function CheckoutContent() {
           name: profile?.name || session.user.user_metadata?.name || '',
           email: session.user.email || '',
         }))
-        // Mantenemos el step en 'details' para que el usuario logueado pueda confirmar sus datos
+        
+        // IMPORTANTE: Obligamos a que se quede en el paso 'details' para evitar que se salte la pasarela
         setStep('details')
       }
     }
@@ -83,6 +84,7 @@ function CheckoutContent() {
       toast.error('Por favor, completa todos los campos requeridos.')
       return
     }
+    // Solo hasta que den click en continuar, pasamos al método de pago
     setStep('payment')
   }
 
@@ -94,7 +96,7 @@ function CheckoutContent() {
 
     setLoading(true)
     try {
-      // 1. Crear el boleto de ida
+      // 1. Crear el boleto de IDA
       const bookingRef = "BT-" + Math.floor(100000 + Math.random() * 900000).toString().slice(0, 6);
       
       const { data: bookingData, error: bookingError } = await supabase
@@ -106,13 +108,13 @@ function CheckoutContent() {
           passenger_name: formData.name,
           passenger_email: formData.email,
           passenger_phone: formData.phone,
-          seats: seats.map(s => parseInt(s)),
+          seats: seats.map(s => parseInt(s)), // Guardamos los asientos de ida
           total_price: totalPrice,
           status: 'pending',
           payment_method: paymentMethod === 'card' ? 'card' : 'cash',
           is_guest: !user,
-          origin: origin,
-          destination: destination,
+          origin: origin?.trim(),
+          destination: destination?.trim(),
           is_round_trip: isRoundTrip,
           is_15_days: is15Days
         })
@@ -125,7 +127,7 @@ function CheckoutContent() {
       let returnTripId = null;
 
       if ((isRoundTrip || is15Days) && returnDate) {
-        // A. Buscar si ya existe el viaje de regreso
+        // A. Buscar si ya existe el viaje de regreso en esa fecha
         const { data: existingTrips } = await supabase
           .from('trips')
           .select('*')
@@ -137,7 +139,7 @@ function CheckoutContent() {
         if (existingTrips && existingTrips.length > 0) {
           returnTripId = existingTrips[0].id;
         } else {
-          // B. Si el viaje no existe, lo creamos sumando 2 horas
+          // B. Si el viaje no existe, lo creamos (Sumando 2 horas para la zona horaria)
           const { data: tripData } = await supabase.from('trips').select('*').eq('id', tripId).single()
           
           const { data: newTrip, error: tripError } = await supabase
@@ -146,8 +148,8 @@ function CheckoutContent() {
               origin: destination?.trim(),
               destination: origin?.trim(),
               date: returnDate,
-              departure_time: '22:00', // Guardamos 22:00 para compensar
-              arrival_time: '08:00',   
+              departure_time: '22:00', // Guardamos 22:00 para que aparezca a las 20:00 (8 PM)
+              arrival_time: '08:00',   // Guardamos 08:00 para que aparezca a las 06:00 (6 AM)
               price: tripData?.price || 0,
               available_seats: tripData?.total_seats || 40,
               total_seats: tripData?.total_seats || 40,
@@ -162,7 +164,7 @@ function CheckoutContent() {
           }
         }
 
-        // C. Duplicar el boleto a costo $0 con la ruta inversa
+        // C. Duplicar el boleto a costo $0 con la ruta inversa y MISMOS ASIENTOS
         if (returnTripId) {
           const returnBookingRef = "BT-R" + Math.floor(100000 + Math.random() * 900000).toString().slice(0, 5);
           
@@ -172,14 +174,14 @@ function CheckoutContent() {
               booking_ref: returnBookingRef,
               trip_id: returnTripId,
               user_id: user?.id || null,
-              seats: seats.map(s => parseInt(s)), 
+              seats: seats.map(s => parseInt(s)), // Clona exactamente los mismos asientos
               passenger_name: formData.name,
               passenger_email: formData.email,
               passenger_phone: formData.phone,
               payment_method: paymentMethod === 'card' ? 'card' : 'cash',
               status: 'pending', 
               is_guest: !user,
-              total_price: 0, 
+              total_price: 0, // <-- BOLETO DE REGRESO EN $0
               origin: destination?.trim(),
               destination: origin?.trim(),
               is_round_trip: true, 
@@ -187,7 +189,7 @@ function CheckoutContent() {
             });
         }
 
-        // D. Ligar el ID del viaje de regreso al boleto original
+        // D. Ligar el ID del viaje de regreso al boleto original de ida
         if (returnTripId && bookingData) {
           await supabase.from('bookings').update({ 
             return_trip_id: returnTripId 
@@ -215,6 +217,7 @@ function CheckoutContent() {
           if (data && data.ok === false) throw new Error(`Clip rechazó el pago: ${data.error}`);
           if (!data?.payment_url) throw new Error("No se recibió el link de pago.");
           
+          // Redirigir al portal de Clip
           window.location.href = data.payment_url;
           return; 
 
@@ -226,6 +229,7 @@ function CheckoutContent() {
         }
 
       } else {
+        // Redirigir a la página de éxito si es pago en taquilla
         router.push(`/checkout/success?bookingId=${bookingData.id}&clip_ref=${bookingData.id}&name=${encodeURIComponent(formData.name)}&origin=${encodeURIComponent(origin || '')}&destination=${encodeURIComponent(destination || '')}&date=${encodeURIComponent(date || '')}&time=${encodeURIComponent(time || '')}&seats=${seats.join(',')}&price=${totalPrice}&status=pending`)
       }
 
@@ -475,7 +479,7 @@ function CheckoutContent() {
   )
 }
 
-// Ahora exportamos el componente principal envuelto en <Suspense> para arreglar el error de Vercel (Next.js)
+// Exportamos el componente principal envuelto en <Suspense> para arreglar el error de Vercel
 export default function CheckoutPageWrapper() {
   return (
     <Suspense fallback={
