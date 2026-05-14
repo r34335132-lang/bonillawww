@@ -1,279 +1,236 @@
 'use client'
 
-import { useState, useEffect, Suspense } from 'react'
+import { Suspense } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
-import { ArrowLeft, CreditCard, Lock, Mail, MapPin, Phone, User, ShieldCheck, Loader2 } from 'lucide-react'
+import { CheckCircle2, Calendar, Clock, MapPin, Ticket, ArrowRight, Home, Download, Share2 } from 'lucide-react'
 import { Header } from '@/components/header'
 import { Footer } from '@/components/footer'
 import { Button } from '@/components/ui/button'
-import { supabase } from '@/lib/supabase'
+import { Badge } from '@/components/ui/badge'
 
-// SUB-COMPONENTE CON LA LÓGICA
-function CheckoutContent() {
+function SuccessContent() {
   const searchParams = useSearchParams()
   const router = useRouter()
 
-  const tripId = searchParams.get('tripId')
-  const origin = searchParams.get('origin') || 'Origen'
-  const destination = searchParams.get('destination') || 'Destino'
-  const label = searchParams.get('label') || 'Boleto'
-  const price = Number(searchParams.get('price')) || 0
-  const seatsRaw = searchParams.get('seats') || ''
-  const selectedSeats = seatsRaw ? seatsRaw.split(',') : []
-  
-  const totalPrice = selectedSeats.length * price
+  // Recuperamos la info del viaje
+  const origin = searchParams.get('origin') || 'Durango'
+  const destination = searchParams.get('destination') || 'Zacatecas'
+  const seats = searchParams.get('seats')?.split(',') || ['13']
+  const date = searchParams.get('date') || new Date().toLocaleDateString()
+  const time = searchParams.get('time') || '05:00 PM' // Si la tienes, se mostrará
+  const price = searchParams.get('price') || '450'
+  const passengerName = searchParams.get('name') || 'Pasajero Principal'
+  const busNumber = searchParams.get('bus') || '110'
+  const transactionId = searchParams.get('clip_ref') || 'BT-' + Math.random().toString(36).substr(2, 9).toUpperCase()
 
-  const [isLoadingAuth, setIsLoadingAuth] = useState(true)
-  const [isProcessing, setIsProcessing] = useState(false)
-  const [formData, setFormData] = useState({
-    name: '',
-    email: '',
-    phone: ''
-  })
-
-  useEffect(() => {
-    const checkUser = async () => {
-      try {
-        const { data: { user } } = await supabase.auth.getUser()
-        if (user) {
-          setFormData({
-            name: user.user_metadata?.full_name || user.user_metadata?.name || '',
-            email: user.email || '',
-            phone: user.phone || ''
-          })
-        }
-      } catch (error) {
-        console.error("Error al obtener sesión:", error)
-      } finally {
-        setIsLoadingAuth(false)
-      }
-    }
-    checkUser()
-  }, [])
-
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value })
-  }
-
-  const handlePayment = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!tripId || selectedSeats.length === 0) return
-
-    setIsProcessing(true)
-    try {
-      const { data, error } = await supabase.functions.invoke('create-clip-payment', {
-        body: {
-          title: `Viaje ${origin} a ${destination} - Asientos: ${selectedSeats.join(', ')}`,
-          quantity: 1, 
-          price: totalPrice
-        }
-      })
-
-      if (error) throw error
-
-      if (data?.ok && data?.payment_url) {
-        window.location.href = data.payment_url
-      } else {
-        alert("No se pudo generar el enlace de pago con Clip. Intenta nuevamente.")
-      }
-    } catch (err) {
-      console.error("Error en el pago:", err)
-      alert("Hubo un error al procesar la solicitud de pago.")
-    } finally {
-      setIsProcessing(false)
-    }
-  }
-
-  if (isLoadingAuth) {
-    return (
-      <div className="flex-1 flex flex-col items-center justify-center py-32">
-        <Loader2 className="h-12 w-12 text-primary animate-spin mb-4" />
-        <h2 className="text-xl font-bold">Preparando tu reserva...</h2>
-      </div>
-    )
-  }
-
-  if (selectedSeats.length === 0) {
-    return (
-      <div className="flex-1 flex flex-col items-center justify-center p-4 text-center py-32">
-        <h2 className="text-2xl font-bold mb-2">No hay asientos seleccionados</h2>
-        <p className="text-muted-foreground mb-6">Por favor, busca un viaje y selecciona tus asientos primero.</p>
-        <Button onClick={() => router.push('/search')} className="bg-primary text-white">Volver al Buscador</Button>
-      </div>
-    )
-  }
+  // Generamos el código corto (DUR, ZAC, GDL, etc.)
+  const shortOrigin = origin.substring(0, 3).toUpperCase()
+  const shortDest = destination.substring(0, 3).toUpperCase()
 
   return (
-    <div className="mx-auto max-w-7xl px-4 pt-24 pb-12 sm:px-6 lg:px-8">
-      <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} className="mb-6">
-        <Button variant="ghost" className="gap-2" onClick={() => router.back()}>
-          <ArrowLeft className="h-4 w-4" /> Modificar Asientos
-        </Button>
-      </motion.div>
+    <>
+      {/* ========================================================================
+        1. VISTA WEB (VISIBLE EN PANTALLA, OCULTA AL IMPRIMIR/DESCARGAR PDF)
+        ========================================================================
+      */}
+      <main className="min-h-screen bg-muted/30 flex flex-col print:hidden">
+        <Header />
 
-      <div className="grid gap-8 lg:grid-cols-[1fr,420px]">
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
-          <div className="bg-card border border-border/50 rounded-[2rem] p-6 sm:p-8 shadow-sm">
-            <div className="mb-8">
-              <h1 className="text-2xl font-bold text-foreground mb-2">Detalles del Pasajero</h1>
-              <p className="text-muted-foreground">Ingresa los datos de la persona que viajará. Enviaremos tus boletos digitales a este correo.</p>
-            </div>
-
-            <form id="checkout-form" onSubmit={handlePayment} className="space-y-6">
-              <div className="space-y-2">
-                <label className="text-sm font-bold text-foreground ml-1">Nombre Completo</label>
-                <div className="relative">
-                  <User className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
-                  <input 
-                    type="text" 
-                    name="name"
-                    required
-                    value={formData.name}
-                    onChange={handleChange}
-                    placeholder="Ej. Juan Pérez"
-                    className="w-full pl-12 pr-4 py-4 rounded-xl border border-border/60 bg-muted/20 focus:bg-background focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all font-medium"
-                  />
-                </div>
-              </div>
-
-              <div className="grid sm:grid-cols-2 gap-6">
-                <div className="space-y-2">
-                  <label className="text-sm font-bold text-foreground ml-1">Correo Electrónico</label>
-                  <div className="relative">
-                    <Mail className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
-                    <input 
-                      type="email" 
-                      name="email"
-                      required
-                      value={formData.email}
-                      onChange={handleChange}
-                      placeholder="tucorreo@ejemplo.com"
-                      className="w-full pl-12 pr-4 py-4 rounded-xl border border-border/60 bg-muted/20 focus:bg-background focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all font-medium"
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <label className="text-sm font-bold text-foreground ml-1">Teléfono</label>
-                  <div className="relative">
-                    <Phone className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
-                    <input 
-                      type="tel" 
-                      name="phone"
-                      required
-                      value={formData.phone}
-                      onChange={handleChange}
-                      placeholder="Ej. 618 123 4567"
-                      className="w-full pl-12 pr-4 py-4 rounded-xl border border-border/60 bg-muted/20 focus:bg-background focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all font-medium"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-8 p-4 rounded-xl bg-primary/5 border border-primary/10 flex items-start gap-4">
-                <ShieldCheck className="h-6 w-6 text-primary shrink-0 mt-0.5" />
-                <p className="text-sm text-muted-foreground leading-relaxed">
-                  Tus datos están protegidos. El pago se procesará de manera encriptada y segura a través de la plataforma certificada de <span className="font-bold text-foreground">Clip</span>.
-                </p>
-              </div>
-            </form>
-          </div>
-        </motion.div>
-
-        <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.2 }}>
-          <div className="bg-card border border-border/50 sticky top-24 rounded-[2rem] p-6 shadow-xl">
-            <h3 className="mb-6 text-xl font-bold text-foreground">Resumen de tu Viaje</h3>
-
-            <div className="mb-6 space-y-4 border-b border-border/50 pb-6">
-              <div className="flex items-start gap-3">
-                <MapPin className="mt-0.5 h-5 w-5 text-primary" />
-                <div>
-                  <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-1">Origen</div>
-                  <div className="font-black text-foreground text-lg">{origin}</div>
-                </div>
-              </div>
-              <div className="flex items-start gap-3">
-                <MapPin className="mt-0.5 h-5 w-5 text-muted-foreground" />
-                <div>
-                  <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-1">Destino</div>
-                  <div className="font-black text-foreground text-lg">{destination}</div>
-                </div>
-              </div>
-            </div>
-
-            <div className="mb-6 border-b border-border/50 pb-6">
-              <div className="flex items-center justify-between mb-4">
-                <span className="text-sm font-bold text-muted-foreground uppercase tracking-wider">Asientos ({selectedSeats.length})</span>
-                <span className="bg-primary/10 text-primary px-2 py-0.5 rounded-md font-black text-xs uppercase">{label}</span>
-              </div>
-              
-              <div className="space-y-3">
-                {selectedSeats.map((seatId) => (
-                  <div key={seatId} className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <div className="h-6 w-6 rounded bg-muted flex items-center justify-center text-xs font-bold text-foreground border border-border">
-                        {seatId}
-                      </div>
-                      <span className="text-sm font-semibold text-muted-foreground">Boleto de Pasajero</span>
-                    </div>
-                    <span className="font-bold text-foreground">${price.toLocaleString()}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="mb-8">
-              <div className="flex items-center justify-between">
-                <span className="text-lg font-bold text-foreground">Total a pagar</span>
-                <div className="text-right">
-                  <div className="text-3xl font-black text-primary">
-                    ${totalPrice.toLocaleString()} <span className="text-base text-muted-foreground">MXN</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <Button 
-              type="submit" 
-              form="checkout-form"
-              disabled={isProcessing}
-              className="w-full gap-2 h-14 text-lg rounded-2xl font-bold transition-all hover:scale-[1.02] shadow-md shadow-primary/20 bg-primary text-white"
+        <div className="flex-1 flex items-center justify-center py-20 px-4">
+          <div className="max-w-xl w-full">
+            
+            <motion.div 
+              initial={{ scale: 0.8, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              className="text-center mb-10"
             >
-              {isProcessing ? (
-                <>
-                  <Loader2 className="h-5 w-5 animate-spin" />
-                  Conectando con Clip...
-                </>
-              ) : (
-                <>
-                  <Lock className="h-5 w-5" />
-                  Pagar y Reservar Viaje
-                </>
-              )}
-            </Button>
-          </div>
-        </motion.div>
+              <div className="inline-flex items-center justify-center size-20 bg-emerald-500 rounded-full mb-4 shadow-lg shadow-emerald-200">
+                <CheckCircle2 className="size-10 text-white" />
+              </div>
+              <h1 className="text-3xl font-black text-foreground">¡Pago Confirmado!</h1>
+              <p className="text-muted-foreground mt-2">Tu reservación ha sido completada con éxito.</p>
+            </motion.div>
 
+            <motion.div
+              initial={{ y: 40, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              transition={{ delay: 0.2 }}
+              className="relative"
+            >
+              <div className="bg-card border border-border border-b-0 rounded-t-[2.5rem] p-8 shadow-sm">
+                <div className="flex justify-between items-start mb-8">
+                  <div>
+                    <p className="text-[10px] font-black text-primary uppercase tracking-[0.2em] mb-1">Boleto Digital</p>
+                    <h2 className="text-xl font-bold">Bonilla Tours</h2>
+                  </div>
+                  <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200 font-bold px-3 py-1">
+                    Pagado
+                  </Badge>
+                </div>
+
+                <div className="flex items-center justify-between mb-8">
+                  <div className="flex-1">
+                    <div className="text-sm font-bold text-muted-foreground uppercase mb-1">Origen</div>
+                    <div className="text-2xl font-black text-foreground uppercase">{origin}</div>
+                  </div>
+                  <div className="px-4 text-primary">
+                    <ArrowRight className="size-6" />
+                  </div>
+                  <div className="flex-1 text-right">
+                    <div className="text-sm font-bold text-muted-foreground uppercase mb-1">Destino</div>
+                    <div className="text-2xl font-black text-foreground uppercase">{destination}</div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-y-6 border-t border-dashed border-border pt-6">
+                  <div>
+                    <div className="flex items-center gap-2 text-muted-foreground mb-1">
+                      <Calendar className="size-3.5" />
+                      <span className="text-[10px] font-bold uppercase tracking-wider">Fecha</span>
+                    </div>
+                    <p className="font-bold text-sm">{date}</p>
+                  </div>
+                  <div className="text-right">
+                    <div className="flex items-center gap-2 justify-end text-muted-foreground mb-1">
+                      <Clock className="size-3.5" />
+                      <span className="text-[10px] font-bold uppercase tracking-wider">Hora</span>
+                    </div>
+                    <p className="font-bold text-sm">{time}</p>
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2 text-muted-foreground mb-1">
+                      <Ticket className="size-3.5" />
+                      <span className="text-[10px] font-bold uppercase tracking-wider">Asientos</span>
+                    </div>
+                    <p className="font-bold text-sm">{seats.join(', ')}</p>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-muted-foreground mb-1">
+                      <span className="text-[10px] font-bold uppercase tracking-wider">Total</span>
+                    </div>
+                    <p className="text-lg font-black text-primary">${Number(price).toLocaleString()} MXN</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="relative flex items-center h-4 bg-card border-x border-border">
+                <div className="absolute -left-3 size-6 rounded-full bg-muted/30 border border-border" />
+                <div className="w-full border-t-2 border-dotted border-border/50 mx-4" />
+                <div className="absolute -right-3 size-6 rounded-full bg-muted/30 border border-border" />
+              </div>
+
+              <div className="bg-card border border-border border-t-0 rounded-b-[2.5rem] p-8 pb-10 shadow-xl">
+                <div className="flex flex-col items-center">
+                  <div className="size-32 bg-white rounded-2xl border border-border flex items-center justify-center mb-4 p-2 overflow-hidden">
+                    {/* Generamos QR real con la API basándonos en el Transaction ID */}
+                    <img src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${transactionId}`} alt="QR Code" className="w-full h-full opacity-90" />
+                  </div>
+                  <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-1">Referencia de Pago</p>
+                  <code className="text-sm font-black text-foreground">{transactionId}</code>
+                </div>
+              </div>
+            </motion.div>
+
+            {/* BOTONES DE ACCIÓN */}
+            <div className="grid grid-cols-2 gap-4 mt-8">
+              <Button variant="outline" className="rounded-2xl h-14 font-bold border-border bg-card" onClick={() => window.print()}>
+                <Download className="size-4 mr-2" /> Descargar Ticket
+              </Button>
+              <Button variant="outline" className="rounded-2xl h-14 font-bold border-border bg-card">
+                <Share2 className="size-4 mr-2" /> Compartir
+              </Button>
+              <Button className="col-span-2 rounded-2xl h-14 font-black bg-primary text-white shadow-lg shadow-primary/20" onClick={() => router.push('/')}>
+                <Home className="size-5 mr-2" /> Volver al Inicio
+              </Button>
+            </div>
+
+          </div>
+        </div>
+
+        <Footer />
+      </main>
+
+      {/* ========================================================================
+        2. TICKET DE IMPRESIÓN (OCULTO EN PANTALLA, VISIBLE AL DESCARGAR/IMPRIMIR)
+        ========================================================================
+      */}
+      <div className="hidden print:flex flex-col items-center justify-center w-full min-h-screen bg-white">
+        <div className="w-[340px] border-[2px] border-gray-200 rounded-3xl p-6 bg-white shadow-none text-black">
+          
+          {/* Header del Ticket */}
+          <div className="text-center mb-8">
+            <h1 className="text-3xl font-black text-primary tracking-tighter">BONILLA TOURS</h1>
+            <p className="text-[9px] font-bold text-gray-500 uppercase tracking-[0.2em] mt-1">Viaje seguro llega a tiempo</p>
+          </div>
+
+          {/* Datos del Pasajero */}
+          <div className="mb-6">
+            <p className="text-[10px] text-gray-400 uppercase font-bold mb-1 tracking-widest">Pasajero</p>
+            <p className="text-xl font-black uppercase text-gray-900">{passengerName}</p>
+          </div>
+
+          {/* Origen y Destino Grandes */}
+          <div className="flex items-center justify-between mb-8 bg-gray-50 p-4 rounded-2xl border border-gray-100">
+            <div className="text-center">
+              <p className="text-4xl font-black text-gray-900">{shortOrigin}</p>
+            </div>
+            <ArrowRight className="size-6 text-gray-300" />
+            <div className="text-center">
+              <p className="text-4xl font-black text-gray-900">{shortDest}</p>
+            </div>
+          </div>
+
+          {/* Detalles en Grid */}
+          <div className="grid grid-cols-2 gap-y-6 mb-8 border-y border-dashed border-gray-300 py-6">
+            <div>
+              <p className="text-[10px] text-gray-400 uppercase font-bold mb-1 tracking-widest">Fecha</p>
+              <p className="text-sm font-black text-gray-900">{date}</p>
+            </div>
+            <div>
+              <p className="text-[10px] text-gray-400 uppercase font-bold mb-1 tracking-widest">Hora</p>
+              <p className="text-sm font-black text-gray-900">{time}</p>
+            </div>
+            <div>
+              <p className="text-[10px] text-gray-400 uppercase font-bold mb-1 tracking-widest">Asiento</p>
+              <p className="text-sm font-black text-gray-900">{seats.join(', ')}</p>
+            </div>
+            <div>
+              <p className="text-[10px] text-gray-400 uppercase font-bold mb-1 tracking-widest">Autobús</p>
+              <p className="text-sm font-black text-gray-900">{busNumber}</p>
+            </div>
+          </div>
+
+          {/* Zona de QR Code */}
+          <div className="flex flex-col items-center justify-center">
+            <div className="size-40 bg-white p-2 border-2 border-gray-100 rounded-xl mb-3 flex items-center justify-center overflow-hidden">
+              <img src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${transactionId}`} alt="QR Code" className="w-full h-full" />
+            </div>
+            <p className="text-[11px] font-bold text-gray-900 uppercase tracking-widest mt-2">Escanea para abordar</p>
+            <p className="text-[10px] text-gray-400 mt-1 uppercase">REF: {transactionId}</p>
+          </div>
+
+        </div>
       </div>
-    </div>
+    </>
   )
 }
 
-// ESTE ES EL CONTENEDOR PRINCIPAL QUE EVITA EL ERROR 500
-export default function CheckoutPage() {
+export default function SuccessPage() {
   return (
-    <main className="min-h-screen bg-background flex flex-col">
-      <Header />
-      <Suspense fallback={
-        <div className="flex-1 flex flex-col items-center justify-center py-32">
-          <Loader2 className="h-12 w-12 text-primary animate-spin mb-4" />
-          <h2 className="text-xl font-bold">Cargando...</h2>
+    <Suspense fallback={
+      <main className="min-h-screen bg-muted/30 flex flex-col">
+        <Header />
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center">
+            <div className="animate-spin size-8 border-4 border-primary border-t-transparent rounded-full mx-auto mb-4" />
+            <p className="text-muted-foreground">Cargando confirmación...</p>
+          </div>
         </div>
-      }>
-        <CheckoutContent />
-      </Suspense>
-      <Footer />
-    </main>
+        <Footer />
+      </main>
+    }>
+      <SuccessContent />
+    </Suspense>
   )
 }
