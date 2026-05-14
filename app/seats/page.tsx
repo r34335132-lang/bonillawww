@@ -11,7 +11,6 @@ import { Button } from '@/components/ui/button'
 import { generateSeats } from '@/lib/data'
 import { supabase } from '@/lib/supabase'
 
-// LÓGICA OFICIAL DE RUTAS
 const BONILLA_ROUTE = [
   "Durango", "Nombre de Dios", "Vicente Guerrero", "Sombrerete",
   "San José de Fénix", "Sain Alto", "Río Florido", "Fresnillo",
@@ -22,12 +21,16 @@ function SeatsContent() {
   const searchParams = useSearchParams()
   const router = useRouter()
   
-  // Parámetros de la URL
   const tripId = searchParams.get('tripId')
   const urlPrice = Number(searchParams.get('price')) || 0
   const ticketLabel = searchParams.get('label') || 'Sencillo'
   const searchOrigin = searchParams.get('origin') || ''
   const searchDest = searchParams.get('destination') || ''
+  
+  // ATRAPAMOS LAS VARIABLES PERDIDAS
+  const isRoundTrip = searchParams.get('isRoundTrip') || 'false'
+  const is15Days = searchParams.get('is15Days') || 'false'
+  const returnDate = searchParams.get('returnDate') || ''
 
   const [trip, setTrip] = useState<any>(null)
   const [seats, setSeats] = useState<any[]>([])
@@ -40,7 +43,6 @@ function SeatsContent() {
       setIsLoading(true);
 
       try {
-        // 1. Obtener detalles del viaje
         const { data: tripData } = await supabase.from('trips').select('*').eq('id', tripId).single();
         
         if (tripData) {
@@ -57,14 +59,12 @@ function SeatsContent() {
           });
         }
 
-        // 2. Obtener reservaciones activas de la BD
         const { data: bookingsData } = await supabase
           .from('bookings')
           .select('seats, status, origin, destination')
           .eq('trip_id', tripId)
           .neq('status', 'cancelled');
 
-        // 3. Matemática para saber si los pasajeros chocan en el camino
         const occupied = new Set<string>();
         const sStart = BONILLA_ROUTE.indexOf(searchOrigin);
         const sEnd = BONILLA_ROUTE.indexOf(searchDest);
@@ -86,7 +86,7 @@ function SeatsContent() {
             }
 
             const bookingGoingSouth = bStart < bEnd;
-            if (isGoingSouth !== bookingGoingSouth) return; // Sentido contrario no choca
+            if (isGoingSouth !== bookingGoingSouth) return; 
 
             if (isGoingSouth) {
               if (bStart < sEnd && bEnd > sStart) {
@@ -100,7 +100,6 @@ function SeatsContent() {
           });
         }
 
-        // 4. Mapear asientos con la BD (Fuerza a 'occupied' a los que están en el Set)
         const generatedLayout = generateSeats(tripData?.total_seats || 40); 
         const configuredSeats = generatedLayout.map((seat: any) => {
           return {
@@ -133,13 +132,18 @@ function SeatsContent() {
 
   const handleContinue = () => {
     if (selectedSeats.length === 0 || !trip) return
+    
+    // PASAMOS LAS VARIABLES AL CHECKOUT
     const params = new URLSearchParams({
       tripId: trip.id,
       seats: selectedSeats.join(','),
       price: trip.price.toString(),
       label: ticketLabel,
       origin: trip.origin,
-      destination: trip.destination
+      destination: trip.destination,
+      isRoundTrip: isRoundTrip,
+      is15Days: is15Days,
+      returnDate: returnDate
     })
     router.push(`/checkout?${params.toString()}`)
   }
@@ -170,7 +174,6 @@ function SeatsContent() {
           </Button>
         </motion.div>
 
-        {/* Resumen del Viaje */}
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="bg-card border border-border/50 mb-8 rounded-[2rem] p-6 shadow-sm">
           <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex flex-1 items-center justify-between sm:justify-start gap-4 sm:gap-12 w-full lg:w-auto">
@@ -205,7 +208,6 @@ function SeatsContent() {
         </motion.div>
 
         <div className="grid gap-8 lg:grid-cols-[1fr,380px]">
-          {/* Mapa de Asientos */}
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
             <h2 className="mb-4 text-xl font-bold text-foreground flex items-center gap-2">
               <Users className="h-5 w-5 text-primary" /> Selecciona tus asientos
@@ -215,7 +217,6 @@ function SeatsContent() {
             </div>
           </motion.div>
 
-          {/* Ticket de Compra */}
           <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.3 }}>
             <div className="bg-card border border-border/50 sticky top-24 rounded-[2rem] p-6 shadow-xl">
               <h3 className="mb-6 text-xl font-bold text-foreground">Resumen de tu viaje</h3>

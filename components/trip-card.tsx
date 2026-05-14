@@ -5,6 +5,7 @@ import { Clock, Users, Wifi, Plug, Monitor, Bath, Wind, UtensilsCrossed, ArrowRi
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import Link from 'next/link'
+import { useSearchParams } from 'next/navigation'
 
 export interface Trip {
   id: string | number;
@@ -32,6 +33,12 @@ const amenityIcons: Record<string, typeof Wifi> = {
 }
 
 export function TripCard({ trip, index }: { trip: Trip; index: number }) {
+  // Obtenemos los parámetros actuales de la URL de búsqueda
+  const searchParams = useSearchParams()
+  const isRoundTrip = searchParams.get('isRoundTrip') || 'false'
+  const is15Days = searchParams.get('is15Days') || 'false'
+  const returnDate = searchParams.get('returnDate') || ''
+
   const serviceColors: Record<string, string> = {
     'Primera Clase': 'bg-amber-500/15 text-amber-700 border-amber-300 dark:text-amber-400',
     'Ejecutivo': 'bg-primary/10 text-primary border-primary/30',
@@ -111,7 +118,8 @@ export function TripCard({ trip, index }: { trip: Trip; index: number }) {
               </div>
             </div>
 
-            <Link href={`/seats?tripId=${trip.id}&price=${trip.price}&label=${trip.priceLabel || 'Sencillo'}&origin=${trip.origin}&destination=${trip.destination}`} className="w-full sm:w-auto mt-auto">
+            {/* AQUÍ PASAMOS TODOS LOS PARÁMETROS A LA SIGUIENTE PÁGINA */}
+            <Link href={`/seats?tripId=${trip.id}&price=${trip.price}&label=${trip.priceLabel || 'Sencillo'}&origin=${trip.origin}&destination=${trip.destination}&isRoundTrip=${isRoundTrip}&is15Days=${is15Days}&returnDate=${returnDate}`} className="w-full sm:w-auto mt-auto">
               <Button className="w-full bg-primary text-white h-11 px-6 rounded-xl font-bold hover:scale-[1.02] transition-transform shadow-md">
                 Seleccionar <ArrowRight className="size-4 ml-2 hidden sm:inline" />
               </Button>
