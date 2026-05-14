@@ -12,7 +12,6 @@ import { supabase } from '@/lib/supabase'
 import { ArrowLeft, User, CreditCard, Ticket, Clock, CheckCircle } from 'lucide-react'
 import { toast } from 'sonner'
 
-// Separamos el contenido que usa useSearchParams() en su propio componente
 function CheckoutContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -36,24 +35,20 @@ function CheckoutContent() {
   const price = priceParam ? parseFloat(priceParam) : 0
   const totalPrice = price * seats.length
 
-  // Form state
   const [formData, setFormData] = useState({
     name: '',
     email: '',
     phone: '',
   })
 
-  // Controlar si mostramos el formulario de datos o las opciones de pago
   const [step, setStep] = useState<'details' | 'payment'>('details')
   const [paymentMethod, setPaymentMethod] = useState<'card' | 'reserve'>('card')
 
   useEffect(() => {
-    // Verificar si el usuario tiene sesión iniciada
     const checkUser = async () => {
       const { data: { session } } = await supabase.auth.getSession()
       if (session?.user) {
         setUser(session.user)
-        // Obtener el nombre del perfil si existe
         const { data: profile } = await supabase
           .from('profiles')
           .select('name')
@@ -65,8 +60,6 @@ function CheckoutContent() {
           name: profile?.name || session.user.user_metadata?.name || '',
           email: session.user.email || '',
         }))
-        
-        // Mantenemos el step en 'details' para que el usuario logueado pueda confirmar sus datos
         setStep('details')
       }
     }
@@ -84,7 +77,6 @@ function CheckoutContent() {
       toast.error('Por favor, completa todos los campos requeridos.')
       return
     }
-    // Solo hasta que den click en continuar, pasamos al método de pago
     setStep('payment')
   }
 
@@ -108,7 +100,7 @@ function CheckoutContent() {
           passenger_name: formData.name,
           passenger_email: formData.email,
           passenger_phone: formData.phone,
-          seats: seats.map(s => parseInt(s)), // Guardamos los asientos de ida
+          seats: seats.map(s => parseInt(s)), 
           total_price: totalPrice,
           status: 'pending',
           payment_method: paymentMethod === 'card' ? 'card' : 'cash',
@@ -123,20 +115,17 @@ function CheckoutContent() {
 
       if (bookingError) throw bookingError
 
-      // 2. Lógica A PRUEBA DE FALLOS para el BOLETO DUPLICADO DE REGRESO
+      // 2. Lógica para el BOLETO DUPLICADO DE REGRESO
       let returnTripId = null;
 
-      // Calculamos una fecha de regreso válida si viene nula o como "undefined"
       let finalReturnDate = returnDate && returnDate !== 'undefined' && returnDate !== 'null' ? returnDate : null;
-      
       if ((is15Days || isRoundTrip) && !finalReturnDate) {
         let d = new Date();
         if (date && date !== 'undefined' && date !== 'null') {
            const [year, month, day] = date.split('-');
            if (year && month && day) d = new Date(Number(year), Number(month) - 1, Number(day));
         }
-        d.setDate(d.getDate() + (is15Days ? 15 : 1)); // Suma 15 días o 1 día
-        
+        d.setDate(d.getDate() + (is15Days ? 15 : 1)); 
         const y = d.getFullYear();
         const m = String(d.getMonth() + 1).padStart(2, '0');
         const dd = String(d.getDate()).padStart(2, '0');
@@ -144,8 +133,6 @@ function CheckoutContent() {
       }
 
       if ((isRoundTrip || is15Days) && finalReturnDate) {
-        
-        // A. Buscar si ya existe el viaje de regreso
         const { data: existingTrips } = await supabase
           .from('trips')
           .select('id')
@@ -157,7 +144,7 @@ function CheckoutContent() {
         if (existingTrips && existingTrips.length > 0) {
           returnTripId = existingTrips[0].id;
         } else {
-          // B. Si no existe, lo creamos con la fecha segura y le sumamos 2 horas para arreglar zona horaria
+          // CLONAMOS TODOS LOS CAMPOS QUE EXIGE LA BASE DE DATOS
           const { data: tripData } = await supabase.from('trips').select('*').eq('id', tripId).single()
           
           const { data: newTrip, error: tripError } = await supabase
@@ -166,25 +153,31 @@ function CheckoutContent() {
               origin: destination?.trim() || '',
               destination: origin?.trim() || '',
               date: finalReturnDate,
-              departure_time: '22:00', // Guardamos 22:00 para que aparezca a las 20:00 (8 PM)
+              departure_time: '22:00', // 10 PM para compensar zona horaria a 8 PM
               arrival_time: '08:00',   
+              duration: tripData?.duration || "Automático Regreso", // DATO FALTANTE
               price: tripData?.price || 0,
+              prices: {}, // DATO FALTANTE
+              round_trip_prices: {}, // DATO FALTANTE
+              price_15_days: tripData?.price_15_days || 0,
               available_seats: tripData?.total_seats || 40,
               total_seats: tripData?.total_seats || 40,
+              occupied_seats: [], // DATO FALTANTE
               bus_type: tripData?.bus_type || "Estándar",
               amenities: tripData?.amenities || []
             })
-            .select('id') // Obligamos a que devuelva el ID
+            .select('id')
             .single();
 
           if (!tripError && newTrip) {
             returnTripId = newTrip.id;
           } else {
             console.error("No se pudo crear viaje de regreso", tripError);
+            toast.error(`Aviso: Hubo un error de BD al generar el camión de regreso (${tripError?.message}). Se procesará solo el boleto de ida.`);
           }
         }
 
-        // C. Duplicar el boleto a costo $0 con la ruta inversa
+        // Duplicar el boleto a costo $0 con la ruta inversa
         if (returnTripId) {
           const returnBookingRef = "BT-R" + Math.floor(100000 + Math.random() * 900000).toString().slice(0, 5);
           
@@ -194,14 +187,14 @@ function CheckoutContent() {
               booking_ref: returnBookingRef,
               trip_id: returnTripId,
               user_id: user?.id || null,
-              seats: seats.map(s => parseInt(s)), // Clona los mismos asientos
+              seats: seats.map(s => parseInt(s)), 
               passenger_name: formData.name,
               passenger_email: formData.email,
               passenger_phone: formData.phone,
               payment_method: paymentMethod === 'card' ? 'card' : 'cash',
               status: 'pending', 
               is_guest: !user,
-              total_price: 0, // <-- BOLETO A $0
+              total_price: 0, 
               origin: destination?.trim(),
               destination: origin?.trim(),
               is_round_trip: isRoundTrip, 
@@ -210,7 +203,6 @@ function CheckoutContent() {
             
             if (returnBookingError) console.error("Error duplicando boleto", returnBookingError)
 
-            // D. Ligar el ID del viaje de regreso al boleto original de ida
             await supabase.from('bookings').update({ 
               return_trip_id: returnTripId 
             }).eq('id', bookingData.id);
@@ -237,7 +229,6 @@ function CheckoutContent() {
           if (data && data.ok === false) throw new Error(`Clip rechazó el pago: ${data.error}`);
           if (!data?.payment_url) throw new Error("No se recibió el link de pago.");
           
-          // Redirigir al portal de Clip
           window.location.href = data.payment_url;
           return; 
 
@@ -249,7 +240,6 @@ function CheckoutContent() {
         }
 
       } else {
-        // Redirigir a la página de éxito si es pago en taquilla
         router.push(`/checkout/success?bookingId=${bookingData.id}&clip_ref=${bookingData.id}&name=${encodeURIComponent(formData.name)}&origin=${encodeURIComponent(origin || '')}&destination=${encodeURIComponent(destination || '')}&date=${encodeURIComponent(date || '')}&time=${encodeURIComponent(time || '')}&seats=${seats.join(',')}&price=${totalPrice}&status=pending`)
       }
 
@@ -293,7 +283,6 @@ function CheckoutContent() {
         </Button>
 
         <div className="flex flex-col md:flex-row gap-8">
-          {/* Main Content Area */}
           <div className="w-full md:w-2/3">
             {step === 'details' ? (
               <Card>
@@ -310,45 +299,20 @@ function CheckoutContent() {
                   <CardContent className="space-y-4">
                     <div className="space-y-2">
                       <Label htmlFor="name">Nombre Completo</Label>
-                      <Input 
-                        id="name" 
-                        name="name" 
-                        value={formData.name} 
-                        onChange={handleInputChange} 
-                        placeholder="Ej. Juan Pérez" 
-                        required 
-                      />
+                      <Input id="name" name="name" value={formData.name} onChange={handleInputChange} placeholder="Ej. Juan Pérez" required />
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="email">Correo Electrónico</Label>
-                      <Input 
-                        id="email" 
-                        name="email" 
-                        type="email" 
-                        value={formData.email} 
-                        onChange={handleInputChange} 
-                        placeholder="tu@correo.com" 
-                        required 
-                      />
+                      <Input id="email" name="email" type="email" value={formData.email} onChange={handleInputChange} placeholder="tu@correo.com" required />
                       <p className="text-xs text-gray-500">A este correo enviaremos tu boleto.</p>
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="phone">Teléfono Móvil</Label>
-                      <Input 
-                        id="phone" 
-                        name="phone" 
-                        type="tel" 
-                        value={formData.phone} 
-                        onChange={handleInputChange} 
-                        placeholder="10 dígitos" 
-                        required 
-                      />
+                      <Input id="phone" name="phone" type="tel" value={formData.phone} onChange={handleInputChange} placeholder="10 dígitos" required />
                     </div>
                   </CardContent>
                   <CardFooter>
-                    <Button type="submit" className="w-full h-12 text-lg">
-                      Continuar al Pago
-                    </Button>
+                    <Button type="submit" className="w-full h-12 text-lg">Continuar al Pago</Button>
                   </CardFooter>
                 </form>
               </Card>
@@ -359,39 +323,25 @@ function CheckoutContent() {
                     <CreditCard className="h-6 w-6 text-primary" />
                     Método de Pago
                   </CardTitle>
-                  <CardDescription>
-                    Selecciona cómo deseas asegurar tu lugar.
-                  </CardDescription>
+                  <CardDescription>Selecciona cómo deseas asegurar tu lugar.</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
-                  
-                  {/* Opciones de Pago */}
                   <div className="grid grid-cols-1 gap-4">
-                    <div 
-                      className={`border-2 rounded-xl p-4 cursor-pointer transition-all ${paymentMethod === 'card' ? 'border-primary bg-primary/5' : 'border-gray-200 hover:border-gray-300'}`}
-                      onClick={() => setPaymentMethod('card')}
-                    >
+                    <div className={`border-2 rounded-xl p-4 cursor-pointer transition-all ${paymentMethod === 'card' ? 'border-primary bg-primary/5' : 'border-gray-200 hover:border-gray-300'}`} onClick={() => setPaymentMethod('card')}>
                       <div className="flex items-center justify-between mb-2">
                         <div className="flex items-center gap-3">
-                          <div className={`p-2 rounded-full ${paymentMethod === 'card' ? 'bg-primary text-white' : 'bg-gray-100 text-gray-500'}`}>
-                            <CreditCard className="h-5 w-5" />
-                          </div>
+                          <div className={`p-2 rounded-full ${paymentMethod === 'card' ? 'bg-primary text-white' : 'bg-gray-100 text-gray-500'}`}><CreditCard className="h-5 w-5" /></div>
                           <span className="font-bold text-lg">Pago Seguro con Tarjeta</span>
                         </div>
                         {paymentMethod === 'card' && <CheckCircle className="h-6 w-6 text-primary" />}
                       </div>
-                      <p className="text-sm text-gray-500 ml-12">Paga ahora con tarjeta de crédito o débito a través de Clip y asegura tu boleto instantáneamente.</p>
+                      <p className="text-sm text-gray-500 ml-12">Paga ahora con tarjeta a través de Clip y asegura tu boleto instantáneamente.</p>
                     </div>
 
-                    <div 
-                      className={`border-2 rounded-xl p-4 cursor-pointer transition-all ${paymentMethod === 'reserve' ? 'border-primary bg-primary/5' : 'border-gray-200 hover:border-gray-300'}`}
-                      onClick={() => setPaymentMethod('reserve')}
-                    >
+                    <div className={`border-2 rounded-xl p-4 cursor-pointer transition-all ${paymentMethod === 'reserve' ? 'border-primary bg-primary/5' : 'border-gray-200 hover:border-gray-300'}`} onClick={() => setPaymentMethod('reserve')}>
                       <div className="flex items-center justify-between mb-2">
                         <div className="flex items-center gap-3">
-                          <div className={`p-2 rounded-full ${paymentMethod === 'reserve' ? 'bg-primary text-white' : 'bg-gray-100 text-gray-500'}`}>
-                            <Ticket className="h-5 w-5" />
-                          </div>
+                          <div className={`p-2 rounded-full ${paymentMethod === 'reserve' ? 'bg-primary text-white' : 'bg-gray-100 text-gray-500'}`}><Ticket className="h-5 w-5" /></div>
                           <span className="font-bold text-lg">Reservar (Pago en Taquilla)</span>
                         </div>
                         {paymentMethod === 'reserve' && <CheckCircle className="h-6 w-6 text-primary" />}
@@ -399,31 +349,16 @@ function CheckoutContent() {
                       <p className="text-sm text-gray-500 ml-12">Aparta tus asientos ahora y paga en efectivo al abordar. <strong className="text-amber-600">Tienes 2 horas para pagar antes de que la reserva expire.</strong></p>
                     </div>
                   </div>
-
                 </CardContent>
                 <CardFooter>
-                  <Button 
-                    onClick={handleConfirmBooking} 
-                    disabled={loading} 
-                    className="w-full h-14 text-lg font-bold"
-                  >
-                    {loading ? (
-                      <span className="flex items-center gap-2">
-                        <div className="h-5 w-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                        Procesando...
-                      </span>
-                    ) : paymentMethod === 'card' ? (
-                      'Pagar y Confirmar'
-                    ) : (
-                      'Confirmar Reserva'
-                    )}
+                  <Button onClick={handleConfirmBooking} disabled={loading} className="w-full h-14 text-lg font-bold">
+                    {loading ? <span className="flex items-center gap-2"><div className="h-5 w-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div> Procesando...</span> : paymentMethod === 'card' ? 'Pagar y Confirmar' : 'Confirmar Reserva'}
                   </Button>
                 </CardFooter>
               </Card>
             )}
           </div>
 
-          {/* Resumen del Viaje Sidebar */}
           <div className="w-full md:w-1/3">
             <Card className="sticky top-24 border-primary/20 shadow-md">
               <div className="h-2 w-full bg-primary rounded-t-xl" />
@@ -499,7 +434,6 @@ function CheckoutContent() {
   )
 }
 
-// Exportamos el componente principal envuelto en <Suspense> para arreglar el error de Vercel
 export default function CheckoutPageWrapper() {
   return (
     <Suspense fallback={
