@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { useRouter } from "next/navigation";
 import { ArrowRightLeft, Calendar, MapPin, Search, Users } from "lucide-react";
@@ -22,15 +22,31 @@ const CITIES = [
   "Guadalajara"
 ];
 
+// FUNCIÓN PARA OBTENER LA FECHA LOCAL CORRECTA (Ignora el Horario Universal)
+const getLocalDateString = () => {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, '0');
+  const day = String(today.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 export function SearchEngine({ floating = false }: { floating?: boolean }) {
   const router = useRouter();
   
   const [origin, setOrigin] = useState("Durango");
   const [destination, setDestination] = useState("Guadalajara");
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
-  const [returnDate, setReturnDate] = useState(""); // <-- Fecha de regreso
+  // Inicializamos con la fecha local correcta
+  const [date, setDate] = useState(getLocalDateString()); 
+  const [returnDate, setReturnDate] = useState(""); 
   const [passengers, setPassengers] = useState(1);
   const [tripType, setTripType] = useState("one-way"); // one-way, round, 15-days
+
+  // Validamos que al cargar la página por primera vez se ponga la fecha de hoy 
+  // (útil para evitar errores de recarga en el servidor)
+  useEffect(() => {
+    setDate(getLocalDateString());
+  }, []);
 
   const swap = () => {
     const temp = origin;
@@ -49,13 +65,15 @@ export function SearchEngine({ floating = false }: { floating?: boolean }) {
       is15Days: (tripType === "15-days").toString(),
     });
     
-    // Si es viaje redondo y hay fecha, se añade a los parámetros
     if (tripType === "round" && returnDate) {
       params.append("returnDate", returnDate);
     }
 
     router.push(`/search?${params.toString()}`);
   };
+
+  // Obtenemos la fecha mínima permitida
+  const minDate = getLocalDateString();
 
   return (
     <motion.form
@@ -77,7 +95,6 @@ export function SearchEngine({ floating = false }: { floating?: boolean }) {
             type="button"
             onClick={() => {
               setTripType(type);
-              // Limpiar fecha de regreso si cambian a sencillo o 15 días
               if (type !== 'round') setReturnDate("");
             }}
             className={`text-[11px] md:text-xs font-bold uppercase tracking-wider px-4 py-2 rounded-full transition-all ${
@@ -89,7 +106,6 @@ export function SearchEngine({ floating = false }: { floating?: boolean }) {
         ))}
       </div>
 
-      {/* INPUTS FLEXIBLES PARA QUE NO SE EMPALMEN */}
       <div className="flex flex-col lg:flex-row gap-2 items-stretch">
         
         {/* BLOQUE ORIGEN Y DESTINO */}
@@ -119,18 +135,23 @@ export function SearchEngine({ floating = false }: { floating?: boolean }) {
         <div className="flex flex-1 flex-col sm:flex-row gap-2">
           <div className="flex-1 min-w-[130px]">
             <Field icon={<Calendar className="size-4 text-primary" />} label="Ida">
-              <input type="date" value={date} min={new Date().toISOString().slice(0, 10)} onChange={(e) => setDate(e.target.value)} className="bg-transparent w-full font-bold text-foreground outline-none cursor-pointer" />
+              <input 
+                type="date" 
+                value={date} 
+                min={minDate} 
+                onChange={(e) => setDate(e.target.value)} 
+                className="bg-transparent w-full font-bold text-foreground outline-none cursor-pointer" 
+              />
             </Field>
           </div>
 
-          {/* ESTE CAMPO SOLO APARECE SI ES IDA Y VUELTA */}
           {tripType === 'round' && (
             <div className="flex-1 min-w-[130px]">
               <Field icon={<Calendar className="size-4 text-primary" />} label="Regreso">
                 <input 
                   type="date" 
                   value={returnDate} 
-                  min={date} // No pueden regresar antes del día de ida
+                  min={date} // No pueden regresar antes de irse
                   onChange={(e) => setReturnDate(e.target.value)} 
                   className="bg-transparent w-full font-bold text-foreground outline-none cursor-pointer" 
                   required 

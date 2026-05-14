@@ -8,6 +8,7 @@ import { Header } from '@/components/header';
 import { Footer } from '@/components/footer';
 import { SearchEngine } from '@/components/search-engine';
 import { Button } from '@/components/ui/button';
+import { useEffect, useState } from 'react';
 
 // PRECIOS Y RUTAS EXACTAS SEGÚN TUS INDICACIONES
 const POPULAR_ROUTES = [
@@ -29,7 +30,23 @@ const fadeUp = {
   show: { opacity: 1, y: 0, transition: { duration: 0.6 } },
 };
 
+// Función para obtener la fecha local correcta y evitar problemas de zona horaria (UTC)
+const getLocalDateString = () => {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, '0');
+  const day = String(today.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 export default function HomePage() {
+  const [localDate, setLocalDate] = useState('');
+
+  // Aseguramos que la fecha se calcule en el cliente con la zona horaria correcta
+  useEffect(() => {
+    setLocalDate(getLocalDateString());
+  }, []);
+
   return (
     <main className="min-h-screen bg-background flex flex-col">
       <Header />
@@ -108,7 +125,7 @@ export default function HomePage() {
         </motion.div>
       </section>
 
-      {/* RUTAS POPULARES CON PRECIOS REALES */}
+      {/* RUTAS POPULARES CON PRECIOS REALES Y FECHA LOCAL CORRECTA */}
       <section className="container mx-auto px-4 mt-28">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -129,7 +146,8 @@ export default function HomePage() {
           {POPULAR_ROUTES.map((r, i) => (
             <Link 
               key={`${r.from}-${r.to}`}
-              href={`/search?origin=${r.from}&destination=${r.to}&date=${new Date().toISOString().slice(0, 10)}&passengers=1&isRoundTrip=false&is15Days=false`}
+              // Aquí pasamos localDate en lugar de new Date().toISOString()
+              href={`/search?origin=${r.from}&destination=${r.to}&date=${localDate || getLocalDateString()}&passengers=1&isRoundTrip=false&is15Days=false`}
             >
               <motion.div
                 initial={{ opacity: 0, y: 30 }}
