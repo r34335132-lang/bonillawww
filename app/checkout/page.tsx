@@ -1,236 +1,481 @@
 'use client'
 
-import { Suspense } from 'react'
-import { useSearchParams, useRouter } from 'next/navigation'
-import { motion } from 'framer-motion'
-import { CheckCircle2, Calendar, Clock, MapPin, Ticket, ArrowRight, Home, Download, Share2 } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { Header } from '@/components/header'
 import { Footer } from '@/components/footer'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
+import { Card, CardContent, CardHeader, CardTitle, CardFooter, CardDescription } from '@/components/ui/card'
+import { Label } from '@/components/ui/label'
+import { supabase } from '@/lib/supabase'
+import { ArrowLeft, User, CreditCard, Ticket, Clock, CheckCircle } from 'lucide-react'
+import { toast } from 'sonner'
 
-function SuccessContent() {
-  const searchParams = useSearchParams()
+export default function CheckoutPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
 
-  // Recuperamos la info del viaje
-  const origin = searchParams.get('origin') || 'Durango'
-  const destination = searchParams.get('destination') || 'Zacatecas'
-  const seats = searchParams.get('seats')?.split(',') || ['13']
-  const date = searchParams.get('date') || new Date().toLocaleDateString()
-  const time = searchParams.get('time') || '05:00 PM' // Si la tienes, se mostrará
-  const price = searchParams.get('price') || '450'
-  const passengerName = searchParams.get('name') || 'Pasajero Principal'
-  const busNumber = searchParams.get('bus') || '110'
-  const transactionId = searchParams.get('clip_ref') || 'BT-' + Math.random().toString(36).substr(2, 9).toUpperCase()
+  const [loading, setLoading] = useState(false)
+  const [user, setUser] = useState<any>(null)
+  
+  // Trip details from URL
+  const tripId = searchParams.get('tripId')
+  const date = searchParams.get('date')
+  const time = searchParams.get('time')
+  const origin = searchParams.get('origin')
+  const destination = searchParams.get('destination')
+  const seatsParam = searchParams.get('seats')
+  const priceParam = searchParams.get('price')
+  const is15Days = searchParams.get('is15Days') === 'true'
+  const isRoundTrip = searchParams.get('isRoundTrip') === 'true'
+  const returnDate = searchParams.get('returnDate')
 
-  // Generamos el código corto (DUR, ZAC, GDL, etc.)
-  const shortOrigin = origin.substring(0, 3).toUpperCase()
-  const shortDest = destination.substring(0, 3).toUpperCase()
+  const seats = seatsParam ? seatsParam.split(',') : []
+  const price = priceParam ? parseFloat(priceParam) : 0
+  const totalPrice = price * seats.length
 
-  return (
-    <>
-      {/* ========================================================================
-        1. VISTA WEB (VISIBLE EN PANTALLA, OCULTA AL IMPRIMIR/DESCARGAR PDF)
-        ========================================================================
-      */}
-      <main className="min-h-screen bg-muted/30 flex flex-col print:hidden">
-        <Header />
+  // Form state
+  const [formData, setFormData] = useState({
+    name: '',
+    email: '',
+    phone: '',
+  })
 
-        <div className="flex-1 flex items-center justify-center py-20 px-4">
-          <div className="max-w-xl w-full">
-            
-            <motion.div 
-              initial={{ scale: 0.8, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              className="text-center mb-10"
-            >
-              <div className="inline-flex items-center justify-center size-20 bg-emerald-500 rounded-full mb-4 shadow-lg shadow-emerald-200">
-                <CheckCircle2 className="size-10 text-white" />
-              </div>
-              <h1 className="text-3xl font-black text-foreground">¡Pago Confirmado!</h1>
-              <p className="text-muted-foreground mt-2">Tu reservación ha sido completada con éxito.</p>
-            </motion.div>
+  // Controlar si mostramos el formulario de datos o las opciones de pago
+  const [step, setStep] = useState<'details' | 'payment'>('details')
+  const [paymentMethod, setPaymentMethod] = useState<'card' | 'reserve'>('card')
 
-            <motion.div
-              initial={{ y: 40, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              transition={{ delay: 0.2 }}
-              className="relative"
-            >
-              <div className="bg-card border border-border border-b-0 rounded-t-[2.5rem] p-8 shadow-sm">
-                <div className="flex justify-between items-start mb-8">
-                  <div>
-                    <p className="text-[10px] font-black text-primary uppercase tracking-[0.2em] mb-1">Boleto Digital</p>
-                    <h2 className="text-xl font-bold">Bonilla Tours</h2>
-                  </div>
-                  <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200 font-bold px-3 py-1">
-                    Pagado
-                  </Badge>
-                </div>
+  useEffect(() => {
+    // Check if user is logged in
+    const checkUser = async () => {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (session?.user) {
+        setUser(session.user)
+        // Obtener el nombre del perfil si existe
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('name')
+          .eq('id', session.user.id)
+          .single()
 
-                <div className="flex items-center justify-between mb-8">
-                  <div className="flex-1">
-                    <div className="text-sm font-bold text-muted-foreground uppercase mb-1">Origen</div>
-                    <div className="text-2xl font-black text-foreground uppercase">{origin}</div>
-                  </div>
-                  <div className="px-4 text-primary">
-                    <ArrowRight className="size-6" />
-                  </div>
-                  <div className="flex-1 text-right">
-                    <div className="text-sm font-bold text-muted-foreground uppercase mb-1">Destino</div>
-                    <div className="text-2xl font-black text-foreground uppercase">{destination}</div>
-                  </div>
-                </div>
+        setFormData(prev => ({
+          ...prev,
+          name: profile?.name || session.user.user_metadata?.name || '',
+          email: session.user.email || '',
+        }))
+        // Aunque esté logueado, mantenemos el step en 'details' para que pueda confirmar o editar sus datos
+        setStep('details')
+      }
+    }
+    checkUser()
+  }, [])
 
-                <div className="grid grid-cols-2 gap-y-6 border-t border-dashed border-border pt-6">
-                  <div>
-                    <div className="flex items-center gap-2 text-muted-foreground mb-1">
-                      <Calendar className="size-3.5" />
-                      <span className="text-[10px] font-bold uppercase tracking-wider">Fecha</span>
-                    </div>
-                    <p className="font-bold text-sm">{date}</p>
-                  </div>
-                  <div className="text-right">
-                    <div className="flex items-center gap-2 justify-end text-muted-foreground mb-1">
-                      <Clock className="size-3.5" />
-                      <span className="text-[10px] font-bold uppercase tracking-wider">Hora</span>
-                    </div>
-                    <p className="font-bold text-sm">{time}</p>
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2 text-muted-foreground mb-1">
-                      <Ticket className="size-3.5" />
-                      <span className="text-[10px] font-bold uppercase tracking-wider">Asientos</span>
-                    </div>
-                    <p className="font-bold text-sm">{seats.join(', ')}</p>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-muted-foreground mb-1">
-                      <span className="text-[10px] font-bold uppercase tracking-wider">Total</span>
-                    </div>
-                    <p className="text-lg font-black text-primary">${Number(price).toLocaleString()} MXN</p>
-                  </div>
-                </div>
-              </div>
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target
+    setFormData(prev => ({ ...prev, [name]: value }))
+  }
 
-              <div className="relative flex items-center h-4 bg-card border-x border-border">
-                <div className="absolute -left-3 size-6 rounded-full bg-muted/30 border border-border" />
-                <div className="w-full border-t-2 border-dotted border-border/50 mx-4" />
-                <div className="absolute -right-3 size-6 rounded-full bg-muted/30 border border-border" />
-              </div>
+  const handleContinueToPayment = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!formData.name || !formData.email || !formData.phone) {
+      toast.error('Por favor, completa todos los campos requeridos.')
+      return
+    }
+    setStep('payment')
+  }
 
-              <div className="bg-card border border-border border-t-0 rounded-b-[2.5rem] p-8 pb-10 shadow-xl">
-                <div className="flex flex-col items-center">
-                  <div className="size-32 bg-white rounded-2xl border border-border flex items-center justify-center mb-4 p-2 overflow-hidden">
-                    {/* Generamos QR real con la API basándonos en el Transaction ID */}
-                    <img src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${transactionId}`} alt="QR Code" className="w-full h-full opacity-90" />
-                  </div>
-                  <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-1">Referencia de Pago</p>
-                  <code className="text-sm font-black text-foreground">{transactionId}</code>
-                </div>
-              </div>
-            </motion.div>
+  const handleConfirmBooking = async () => {
+    if (!tripId || seats.length === 0) {
+      toast.error('Error: Faltan datos del viaje o asientos.')
+      return
+    }
 
-            {/* BOTONES DE ACCIÓN */}
-            <div className="grid grid-cols-2 gap-4 mt-8">
-              <Button variant="outline" className="rounded-2xl h-14 font-bold border-border bg-card" onClick={() => window.print()}>
-                <Download className="size-4 mr-2" /> Descargar Ticket
-              </Button>
-              <Button variant="outline" className="rounded-2xl h-14 font-bold border-border bg-card">
-                <Share2 className="size-4 mr-2" /> Compartir
-              </Button>
-              <Button className="col-span-2 rounded-2xl h-14 font-black bg-primary text-white shadow-lg shadow-primary/20" onClick={() => router.push('/')}>
-                <Home className="size-5 mr-2" /> Volver al Inicio
-              </Button>
-            </div>
+    setLoading(true)
+    try {
+      // 1. Crear el boleto de ida
+      const bookingRef = "BT-" + Math.floor(100000 + Math.random() * 900000).toString().slice(0, 6);
+      
+      // Creamos el registro base en status pending
+      const { data: bookingData, error: bookingError } = await supabase
+        .from('bookings')
+        .insert({
+          booking_ref: bookingRef,
+          trip_id: tripId,
+          user_id: user?.id || null,
+          passenger_name: formData.name,
+          passenger_email: formData.email,
+          passenger_phone: formData.phone,
+          seats: seats.map(s => parseInt(s)),
+          total_price: totalPrice,
+          status: 'pending',
+          payment_method: paymentMethod === 'card' ? 'card' : 'cash',
+          is_guest: !user,
+          origin: origin,
+          destination: destination,
+          is_round_trip: isRoundTrip,
+          is_15_days: is15Days
+        })
+        .select()
+        .single()
 
-          </div>
-        </div>
+      if (bookingError) throw bookingError
 
-        <Footer />
-      </main>
+      // 2. Lógica para el BOLETO DUPLICADO DE REGRESO
+      let returnTripId = null;
 
-      {/* ========================================================================
-        2. TICKET DE IMPRESIÓN (OCULTO EN PANTALLA, VISIBLE AL DESCARGAR/IMPRIMIR)
-        ========================================================================
-      */}
-      <div className="hidden print:flex flex-col items-center justify-center w-full min-h-screen bg-white">
-        <div className="w-[340px] border-[2px] border-gray-200 rounded-3xl p-6 bg-white shadow-none text-black">
+      if ((isRoundTrip || is15Days) && returnDate) {
+        
+        // A. Buscar si ya existe el viaje de regreso
+        const { data: existingTrips } = await supabase
+          .from('trips')
+          .select('*')
+          .eq('date', returnDate)
+          .eq('origin', destination?.trim())
+          .eq('destination', origin?.trim())
+          .limit(1);
+
+        if (existingTrips && existingTrips.length > 0) {
+          returnTripId = existingTrips[0].id;
+        } else {
+          // B. Si el viaje no existe, lo creamos (TRUCO: Sumamos 2 horas para compensar zona horaria)
+          // Obtenemos el precio y datos base del viaje de ida para clonarlos
+          const { data: tripData } = await supabase.from('trips').select('*').eq('id', tripId).single()
           
-          {/* Header del Ticket */}
-          <div className="text-center mb-8">
-            <h1 className="text-3xl font-black text-primary tracking-tighter">BONILLA TOURS</h1>
-            <p className="text-[9px] font-bold text-gray-500 uppercase tracking-[0.2em] mt-1">Viaje seguro llega a tiempo</p>
-          </div>
+          const { data: newTrip, error: tripError } = await supabase
+            .from('trips')
+            .insert({
+              origin: destination?.trim(),
+              destination: origin?.trim(),
+              date: returnDate,
+              departure_time: '22:00', // Guardamos 22:00 para que quede a las 20:00 (8 PM)
+              arrival_time: '08:00',   // Guardamos 08:00 para que quede a las 06:00 (6 AM)
+              price: tripData?.price || 0,
+              available_seats: tripData?.total_seats || 40,
+              total_seats: tripData?.total_seats || 40,
+              bus_type: tripData?.bus_type || "Estándar",
+              amenities: tripData?.amenities || []
+            })
+            .select()
+            .single();
 
-          {/* Datos del Pasajero */}
-          <div className="mb-6">
-            <p className="text-[10px] text-gray-400 uppercase font-bold mb-1 tracking-widest">Pasajero</p>
-            <p className="text-xl font-black uppercase text-gray-900">{passengerName}</p>
-          </div>
+          if (!tripError && newTrip) {
+            returnTripId = newTrip.id;
+          }
+        }
 
-          {/* Origen y Destino Grandes */}
-          <div className="flex items-center justify-between mb-8 bg-gray-50 p-4 rounded-2xl border border-gray-100">
-            <div className="text-center">
-              <p className="text-4xl font-black text-gray-900">{shortOrigin}</p>
-            </div>
-            <ArrowRight className="size-6 text-gray-300" />
-            <div className="text-center">
-              <p className="text-4xl font-black text-gray-900">{shortDest}</p>
-            </div>
-          </div>
+        // C. Duplicar el boleto a costo $0 con la ruta inversa
+        if (returnTripId) {
+          const returnBookingRef = "BT-R" + Math.floor(100000 + Math.random() * 900000).toString().slice(0, 5);
+          
+          await supabase
+            .from('bookings')
+            .insert({
+              booking_ref: returnBookingRef,
+              trip_id: returnTripId,
+              user_id: user?.id || null,
+              seats: seats.map(s => parseInt(s)), // Mismos asientos
+              passenger_name: formData.name,
+              passenger_email: formData.email,
+              passenger_phone: formData.phone,
+              payment_method: paymentMethod === 'card' ? 'card' : 'cash',
+              status: 'pending', 
+              is_guest: !user,
+              total_price: 0, // <-- IMPORTANTE: Boleto de regreso a $0
+              origin: destination?.trim(),
+              destination: origin?.trim(),
+              is_round_trip: true, // Siempre true para el duplicado
+              is_15_days: is15Days
+            });
+        }
 
-          {/* Detalles en Grid */}
-          <div className="grid grid-cols-2 gap-y-6 mb-8 border-y border-dashed border-gray-300 py-6">
-            <div>
-              <p className="text-[10px] text-gray-400 uppercase font-bold mb-1 tracking-widest">Fecha</p>
-              <p className="text-sm font-black text-gray-900">{date}</p>
-            </div>
-            <div>
-              <p className="text-[10px] text-gray-400 uppercase font-bold mb-1 tracking-widest">Hora</p>
-              <p className="text-sm font-black text-gray-900">{time}</p>
-            </div>
-            <div>
-              <p className="text-[10px] text-gray-400 uppercase font-bold mb-1 tracking-widest">Asiento</p>
-              <p className="text-sm font-black text-gray-900">{seats.join(', ')}</p>
-            </div>
-            <div>
-              <p className="text-[10px] text-gray-400 uppercase font-bold mb-1 tracking-widest">Autobús</p>
-              <p className="text-sm font-black text-gray-900">{busNumber}</p>
-            </div>
-          </div>
+        // D. Ligar el ID del viaje de regreso al boleto original
+        if (returnTripId && bookingData) {
+          await supabase.from('bookings').update({ 
+            return_trip_id: returnTripId 
+          }).eq('id', bookingData.id);
+        }
+      } // Fin de lógica de regreso
 
-          {/* Zona de QR Code */}
-          <div className="flex flex-col items-center justify-center">
-            <div className="size-40 bg-white p-2 border-2 border-gray-100 rounded-xl mb-3 flex items-center justify-center overflow-hidden">
-              <img src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${transactionId}`} alt="QR Code" className="w-full h-full" />
-            </div>
-            <p className="text-[11px] font-bold text-gray-900 uppercase tracking-widest mt-2">Escanea para abordar</p>
-            <p className="text-[10px] text-gray-400 mt-1 uppercase">REF: {transactionId}</p>
-          </div>
+      // 3. Procesar el pago o la reserva
+      if (paymentMethod === 'card') {
+        // Redirigir a Clip (Usaremos la misma Edge Function que la app móvil)
+        try {
+          const unitPrice = totalPrice / seats.length;
+          const tipoViajeStr = is15Days ? 'Paquete 15 Días' : isRoundTrip ? 'Redondo' : 'Sencillo';
+          
+          const { data, error } = await supabase.functions.invoke('create-clip-payment', {
+            body: {
+              title: `Viaje ${tipoViajeStr}: ${origin} a ${destination}`,
+              quantity: seats.length,
+              price: unitPrice,
+              email: formData.email,
+              bookingId: bookingData.id 
+            }
+          });
 
-        </div>
-      </div>
-    </>
-  )
-}
+          if (error) throw new Error(`Conexión fallida con Clip: ${error.message}`);
+          if (data && data.ok === false) throw new Error(`Clip rechazó el pago: ${data.error}`);
+          if (!data?.payment_url) throw new Error("No se recibió el link de pago.");
+          
+          // Redirigir al usuario al checkout de Clip
+          window.location.href = data.payment_url;
+          return; // Detenemos aquí porque el usuario se va a Clip. El webhook confirmará el pago.
 
-export default function SuccessPage() {
-  return (
-    <Suspense fallback={
-      <main className="min-h-screen bg-muted/30 flex flex-col">
+        } catch (clipError: any) {
+          console.error("Error al iniciar Clip:", clipError);
+          toast.error("Hubo un problema al conectar con el procesador de pagos. Puedes intentar reservar pagando en taquilla.");
+          setLoading(false);
+          return;
+        }
+
+      } else {
+        // Reserva (Pago en Taquilla) - Se queda en pending y redirigimos a success
+        router.push(`/checkout/success?bookingId=${bookingData.id}&clip_ref=${bookingData.id}&name=${encodeURIComponent(formData.name)}&origin=${encodeURIComponent(origin || '')}&destination=${encodeURIComponent(destination || '')}&date=${encodeURIComponent(date || '')}&time=${encodeURIComponent(time || '')}&seats=${seats.join(',')}&price=${totalPrice}&status=pending`)
+      }
+
+    } catch (error: any) {
+      console.error('Error booking trip:', error)
+      toast.error('Ocurrió un error al procesar tu reserva. Intenta de nuevo.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  if (!tripId || seats.length === 0) {
+    return (
+      <main className="min-h-screen bg-gray-50 flex flex-col">
         <Header />
         <div className="flex-1 flex items-center justify-center">
-          <div className="text-center">
-            <div className="animate-spin size-8 border-4 border-primary border-t-transparent rounded-full mx-auto mb-4" />
-            <p className="text-muted-foreground">Cargando confirmación...</p>
-          </div>
+          <Card className="max-w-md w-full">
+            <CardContent className="pt-6 text-center">
+              <p className="text-gray-500 mb-4">No se encontraron detalles del viaje. Por favor, realiza una nueva búsqueda.</p>
+              <Button onClick={() => router.push('/')}>Volver al Inicio</Button>
+            </CardContent>
+          </Card>
         </div>
         <Footer />
       </main>
-    }>
-      <SuccessContent />
-    </Suspense>
+    )
+  }
+
+  return (
+    <main className="min-h-screen bg-gray-50 flex flex-col">
+      <Header />
+
+      <div className="flex-1 container mx-auto px-4 py-8 max-w-5xl">
+        <Button 
+          variant="ghost" 
+          className="mb-6 pl-0 hover:bg-transparent"
+          onClick={() => step === 'payment' ? setStep('details') : router.back()}
+        >
+          <ArrowLeft className="mr-2 h-4 w-4" />
+          {step === 'payment' ? 'Volver a datos del pasajero' : 'Volver'}
+        </Button>
+
+        <div className="flex flex-col md:flex-row gap-8">
+          {/* Main Content Area */}
+          <div className="w-full md:w-2/3">
+            {step === 'details' ? (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-2xl flex items-center gap-2">
+                    <User className="h-6 w-6 text-primary" />
+                    Datos del Pasajero Principal
+                  </CardTitle>
+                  <CardDescription>
+                    Ingresa los datos de la persona que realizará el viaje.
+                  </CardDescription>
+                </CardHeader>
+                <form onSubmit={handleContinueToPayment}>
+                  <CardContent className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="name">Nombre Completo</Label>
+                      <Input 
+                        id="name" 
+                        name="name" 
+                        value={formData.name} 
+                        onChange={handleInputChange} 
+                        placeholder="Ej. Juan Pérez" 
+                        required 
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="email">Correo Electrónico</Label>
+                      <Input 
+                        id="email" 
+                        name="email" 
+                        type="email" 
+                        value={formData.email} 
+                        onChange={handleInputChange} 
+                        placeholder="tu@correo.com" 
+                        required 
+                      />
+                      <p className="text-xs text-gray-500">A este correo enviaremos tu boleto.</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="phone">Teléfono Móvil</Label>
+                      <Input 
+                        id="phone" 
+                        name="phone" 
+                        type="tel" 
+                        value={formData.phone} 
+                        onChange={handleInputChange} 
+                        placeholder="10 dígitos" 
+                        required 
+                      />
+                    </div>
+                  </CardContent>
+                  <CardFooter>
+                    <Button type="submit" className="w-full h-12 text-lg">
+                      Continuar al Pago
+                    </Button>
+                  </CardFooter>
+                </form>
+              </Card>
+            ) : (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-2xl flex items-center gap-2">
+                    <CreditCard className="h-6 w-6 text-primary" />
+                    Método de Pago
+                  </CardTitle>
+                  <CardDescription>
+                    Selecciona cómo deseas asegurar tu lugar.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  
+                  {/* Opciones de Pago */}
+                  <div className="grid grid-cols-1 gap-4">
+                    <div 
+                      className={`border-2 rounded-xl p-4 cursor-pointer transition-all ${paymentMethod === 'card' ? 'border-primary bg-primary/5' : 'border-gray-200 hover:border-gray-300'}`}
+                      onClick={() => setPaymentMethod('card')}
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-3">
+                          <div className={`p-2 rounded-full ${paymentMethod === 'card' ? 'bg-primary text-white' : 'bg-gray-100 text-gray-500'}`}>
+                            <CreditCard className="h-5 w-5" />
+                          </div>
+                          <span className="font-bold text-lg">Pago Seguro con Tarjeta</span>
+                        </div>
+                        {paymentMethod === 'card' && <CheckCircle className="h-6 w-6 text-primary" />}
+                      </div>
+                      <p className="text-sm text-gray-500 ml-12">Paga ahora con tarjeta de crédito o débito a través de Clip y asegura tu boleto instantáneamente.</p>
+                    </div>
+
+                    <div 
+                      className={`border-2 rounded-xl p-4 cursor-pointer transition-all ${paymentMethod === 'reserve' ? 'border-primary bg-primary/5' : 'border-gray-200 hover:border-gray-300'}`}
+                      onClick={() => setPaymentMethod('reserve')}
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-3">
+                          <div className={`p-2 rounded-full ${paymentMethod === 'reserve' ? 'bg-primary text-white' : 'bg-gray-100 text-gray-500'}`}>
+                            <Ticket className="h-5 w-5" />
+                          </div>
+                          <span className="font-bold text-lg">Reservar (Pago en Taquilla)</span>
+                        </div>
+                        {paymentMethod === 'reserve' && <CheckCircle className="h-6 w-6 text-primary" />}
+                      </div>
+                      <p className="text-sm text-gray-500 ml-12">Aparta tus asientos ahora y paga en efectivo al abordar. <strong className="text-amber-600">Tienes 2 horas para pagar antes de que la reserva expire.</strong></p>
+                    </div>
+                  </div>
+
+                </CardContent>
+                <CardFooter>
+                  <Button 
+                    onClick={handleConfirmBooking} 
+                    disabled={loading} 
+                    className="w-full h-14 text-lg font-bold"
+                  >
+                    {loading ? (
+                      <span className="flex items-center gap-2">
+                        <div className="h-5 w-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                        Procesando...
+                      </span>
+                    ) : paymentMethod === 'card' ? (
+                      'Pagar y Confirmar'
+                    ) : (
+                      'Confirmar Reserva'
+                    )}
+                  </Button>
+                </CardFooter>
+              </Card>
+            )}
+          </div>
+
+          {/* Resumen del Viaje Sidebar */}
+          <div className="w-full md:w-1/3">
+            <Card className="sticky top-24 border-primary/20 shadow-md">
+              <div className="h-2 w-full bg-primary rounded-t-xl" />
+              <CardHeader className="pb-4">
+                <CardTitle className="text-lg">Resumen de tu Viaje</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                
+                <div className="flex items-center justify-between">
+                  <div className="text-center">
+                    <p className="text-2xl font-black">{time}</p>
+                    <p className="text-sm font-semibold text-gray-500">{origin}</p>
+                  </div>
+                  <div className="flex-1 px-4 flex flex-col items-center">
+                    <div className="h-[2px] w-full bg-gray-200 relative">
+                      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white px-2 text-primary">
+                        <Clock className="h-4 w-4" />
+                      </div>
+                    </div>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-2xl font-black">{destination}</p>
+                  </div>
+                </div>
+
+                <div className="space-y-3 pt-4 border-t">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-500">Fecha:</span>
+                    <span className="font-semibold">{date}</span>
+                  </div>
+                  
+                  {is15Days ? (
+                     <div className="flex justify-between text-sm">
+                      <span className="text-gray-500">Tipo de Viaje:</span>
+                      <span className="font-semibold text-purple-600">Paquete 15 Días</span>
+                    </div>
+                  ) : isRoundTrip ? (
+                     <div className="flex justify-between text-sm">
+                      <span className="text-gray-500">Regreso:</span>
+                      <span className="font-semibold text-primary">{returnDate}</span>
+                    </div>
+                  ) : (
+                     <div className="flex justify-between text-sm">
+                      <span className="text-gray-500">Tipo:</span>
+                      <span className="font-semibold">Sencillo</span>
+                    </div>
+                  )}
+
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-500">Asientos ({seats.length}):</span>
+                    <span className="font-semibold">{seats.join(', ')}</span>
+                  </div>
+                </div>
+
+                <div className="pt-4 border-t">
+                  <div className="flex justify-between items-center mb-1">
+                    <span className="text-gray-600 font-semibold">Total a pagar</span>
+                    <span className="text-2xl font-black text-primary">${totalPrice.toLocaleString()}</span>
+                  </div>
+                  {is15Days && (
+                    <p className="text-xs text-purple-600 text-right font-semibold">Tarifa Especial Aplicada</p>
+                  )}
+                  <p className="text-xs text-gray-400 text-right mt-1">Pesos Mexicanos (MXN)</p>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      </div>
+
+      <Footer />
+    </main>
   )
 }
