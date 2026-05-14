@@ -127,48 +127,51 @@ function CheckoutContent() {
       let returnTripId = null;
 
       if ((isRoundTrip || is15Days) && returnDate) {
-        // A. Buscar si ya existe el viaje de regreso en esa fecha
+        
+        // A. Buscar si ya existe el viaje de regreso EXACTAMENTE en esa fecha y ruta
         const { data: existingTrips } = await supabase
           .from('trips')
-          .select('*')
+          .select('id')
           .eq('date', returnDate)
-          .eq('origin', destination?.trim())
-          .eq('destination', origin?.trim())
+          .eq('origin', destination?.trim() || '')
+          .eq('destination', origin?.trim() || '')
           .limit(1);
 
         if (existingTrips && existingTrips.length > 0) {
           returnTripId = existingTrips[0].id;
         } else {
-          // B. Si el viaje no existe, lo creamos (Sumando 2 horas para la zona horaria)
+          // B. Si el viaje no existe, lo creamos y le sumamos 2 horas para arreglar zona horaria
           const { data: tripData } = await supabase.from('trips').select('*').eq('id', tripId).single()
           
           const { data: newTrip, error: tripError } = await supabase
             .from('trips')
             .insert({
-              origin: destination?.trim(),
-              destination: origin?.trim(),
+              origin: destination?.trim() || '',
+              destination: origin?.trim() || '',
               date: returnDate,
-              departure_time: '22:00', // Guardamos 22:00 para que aparezca a las 20:00 (8 PM)
-              arrival_time: '08:00',   // Guardamos 08:00 para que aparezca a las 06:00 (6 AM)
+              departure_time: '22:00', // Guardamos 22:00 (10PM) para compensar y que quede a las 20:00 (8PM)
+              arrival_time: '08:00',   
               price: tripData?.price || 0,
               available_seats: tripData?.total_seats || 40,
               total_seats: tripData?.total_seats || 40,
               bus_type: tripData?.bus_type || "Estándar",
               amenities: tripData?.amenities || []
             })
-            .select()
+            .select('id') // OBLIGAMOS a que nos devuelva el ID
             .single();
 
           if (!tripError && newTrip) {
             returnTripId = newTrip.id;
+          } else {
+            console.error("No se pudo crear viaje de regreso", tripError);
           }
         }
 
-        // C. Duplicar el boleto a costo $0 con la ruta inversa y MISMOS ASIENTOS
+        // C. Duplicar el boleto a costo $0 con la ruta inversa
         if (returnTripId) {
           const returnBookingRef = "BT-R" + Math.floor(100000 + Math.random() * 900000).toString().slice(0, 5);
           
-          await supabase
+          const { error: returnBookingError } = await supabase
             .from('bookings')
             .insert({
               booking_ref: returnBookingRef,
@@ -187,13 +190,13 @@ function CheckoutContent() {
               is_round_trip: true, 
               is_15_days: is15Days
             });
-        }
+            
+            if (returnBookingError) console.error("Error duplicando boleto", returnBookingError)
 
-        // D. Ligar el ID del viaje de regreso al boleto original de ida
-        if (returnTripId && bookingData) {
-          await supabase.from('bookings').update({ 
-            return_trip_id: returnTripId 
-          }).eq('id', bookingData.id);
+            // D. Ligar el ID del viaje de regreso al boleto original de ida
+            await supabase.from('bookings').update({ 
+              return_trip_id: returnTripId 
+            }).eq('id', bookingData.id);
         }
       }
 
