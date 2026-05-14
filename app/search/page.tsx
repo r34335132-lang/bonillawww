@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { motion } from 'framer-motion'
 import { ArrowRight, Calendar, MapPin, Users, Filter, X, Loader2 } from 'lucide-react'
@@ -109,7 +109,7 @@ const calculateSegmentData = (trip: any, searchOrigin: string, searchDest: strin
 };
 // --- FIN LÓGICA MAESTRA ---
 
-export default function SearchPage() {
+function SearchContent() {
   const searchParams = useSearchParams()
   const origin = searchParams.get('origin') || 'Durango'
   const destination = searchParams.get('destination') || 'Guadalajara'
@@ -378,5 +378,24 @@ export default function SearchPage() {
       </div>
       <Footer />
     </main>
+  )
+}
+
+export default function SearchPage() {
+  return (
+    <Suspense fallback={
+      <main className="min-h-screen bg-background flex flex-col">
+        <Header />
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center">
+            <div className="animate-spin size-8 border-4 border-primary border-t-transparent rounded-full mx-auto mb-4" />
+            <p className="text-muted-foreground">Cargando resultados...</p>
+          </div>
+        </div>
+        <Footer />
+      </main>
+    }>
+      <SearchContent />
+    </Suspense>
   )
 }
