@@ -66,7 +66,7 @@ function CheckoutContent() {
           email: session.user.email || '',
         }))
         
-        // IMPORTANTE: Obligamos a que se quede en el paso 'details' para evitar que se salte la pasarela
+        // Mantenemos el step en 'details' para que el usuario logueado pueda confirmar sus datos
         setStep('details')
       }
     }
@@ -123,16 +123,33 @@ function CheckoutContent() {
 
       if (bookingError) throw bookingError
 
-      // 2. Lógica para el BOLETO DUPLICADO DE REGRESO
+      // 2. Lógica A PRUEBA DE FALLOS para el BOLETO DUPLICADO DE REGRESO
       let returnTripId = null;
 
-      if ((isRoundTrip || is15Days) && returnDate) {
+      // Calculamos una fecha de regreso válida si viene nula o como "undefined"
+      let finalReturnDate = returnDate && returnDate !== 'undefined' && returnDate !== 'null' ? returnDate : null;
+      
+      if ((is15Days || isRoundTrip) && !finalReturnDate) {
+        let d = new Date();
+        if (date && date !== 'undefined' && date !== 'null') {
+           const [year, month, day] = date.split('-');
+           if (year && month && day) d = new Date(Number(year), Number(month) - 1, Number(day));
+        }
+        d.setDate(d.getDate() + (is15Days ? 15 : 1)); // Suma 15 días o 1 día
         
-        // A. Buscar si ya existe el viaje de regreso EXACTAMENTE en esa fecha y ruta
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const dd = String(d.getDate()).padStart(2, '0');
+        finalReturnDate = `${y}-${m}-${dd}`;
+      }
+
+      if ((isRoundTrip || is15Days) && finalReturnDate) {
+        
+        // A. Buscar si ya existe el viaje de regreso
         const { data: existingTrips } = await supabase
           .from('trips')
           .select('id')
-          .eq('date', returnDate)
+          .eq('date', finalReturnDate)
           .eq('origin', destination?.trim() || '')
           .eq('destination', origin?.trim() || '')
           .limit(1);
@@ -140,7 +157,7 @@ function CheckoutContent() {
         if (existingTrips && existingTrips.length > 0) {
           returnTripId = existingTrips[0].id;
         } else {
-          // B. Si el viaje no existe, lo creamos y le sumamos 2 horas para arreglar zona horaria
+          // B. Si no existe, lo creamos con la fecha segura y le sumamos 2 horas para arreglar zona horaria
           const { data: tripData } = await supabase.from('trips').select('*').eq('id', tripId).single()
           
           const { data: newTrip, error: tripError } = await supabase
@@ -148,8 +165,8 @@ function CheckoutContent() {
             .insert({
               origin: destination?.trim() || '',
               destination: origin?.trim() || '',
-              date: returnDate,
-              departure_time: '22:00', // Guardamos 22:00 (10PM) para compensar y que quede a las 20:00 (8PM)
+              date: finalReturnDate,
+              departure_time: '22:00', // Guardamos 22:00 para que aparezca a las 20:00 (8 PM)
               arrival_time: '08:00',   
               price: tripData?.price || 0,
               available_seats: tripData?.total_seats || 40,
@@ -157,7 +174,7 @@ function CheckoutContent() {
               bus_type: tripData?.bus_type || "Estándar",
               amenities: tripData?.amenities || []
             })
-            .select('id') // OBLIGAMOS a que nos devuelva el ID
+            .select('id') // Obligamos a que devuelva el ID
             .single();
 
           if (!tripError && newTrip) {
@@ -177,17 +194,17 @@ function CheckoutContent() {
               booking_ref: returnBookingRef,
               trip_id: returnTripId,
               user_id: user?.id || null,
-              seats: seats.map(s => parseInt(s)), // Clona exactamente los mismos asientos
+              seats: seats.map(s => parseInt(s)), // Clona los mismos asientos
               passenger_name: formData.name,
               passenger_email: formData.email,
               passenger_phone: formData.phone,
               payment_method: paymentMethod === 'card' ? 'card' : 'cash',
               status: 'pending', 
               is_guest: !user,
-              total_price: 0, // <-- BOLETO DE REGRESO EN $0
+              total_price: 0, // <-- BOLETO A $0
               origin: destination?.trim(),
               destination: origin?.trim(),
-              is_round_trip: true, 
+              is_round_trip: isRoundTrip, 
               is_15_days: is15Days
             });
             
