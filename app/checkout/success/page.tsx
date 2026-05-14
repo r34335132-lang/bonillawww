@@ -1,5 +1,6 @@
 'use client'
 
+import { Suspense } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
 import { CheckCircle2, Calendar, Clock, MapPin, Ticket, ArrowRight, Home, Download, Share2 } from 'lucide-react'
@@ -8,7 +9,7 @@ import { Footer } from '@/components/footer'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 
-export default function SuccessPage() {
+function SuccessContent() {
   const searchParams = useSearchParams()
   const router = useRouter()
 
@@ -212,5 +213,24 @@ export default function SuccessPage() {
         </div>
       </div>
     </>
+  )
+}
+
+export default function SuccessPage() {
+  return (
+    <Suspense fallback={
+      <main className="min-h-screen bg-muted/30 flex flex-col">
+        <Header />
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center">
+            <div className="animate-spin size-8 border-4 border-primary border-t-transparent rounded-full mx-auto mb-4" />
+            <p className="text-muted-foreground">Cargando confirmación...</p>
+          </div>
+        </div>
+        <Footer />
+      </main>
+    }>
+      <SuccessContent />
+    </Suspense>
   )
 }
