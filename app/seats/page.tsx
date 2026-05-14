@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
 import { ArrowLeft, MapPin, Bus, Users, CreditCard, Loader2 } from 'lucide-react'
@@ -18,7 +18,7 @@ const BONILLA_ROUTE = [
   "Calera", "Zacatecas", "Aguascalientes", "San Juan de los Lagos", "Guadalajara"
 ];
 
-export default function SeatsPage() {
+function SeatsContent() {
   const searchParams = useSearchParams()
   const router = useRouter()
   
@@ -279,5 +279,22 @@ export default function SeatsPage() {
       </div>
       <Footer />
     </main>
+  )
+}
+
+export default function SeatsPage() {
+  return (
+    <Suspense fallback={
+      <main className="min-h-screen bg-background flex flex-col">
+        <Header />
+        <div className="flex-1 flex flex-col items-center justify-center">
+          <div className="animate-spin size-8 border-4 border-primary border-t-transparent rounded-full mb-4" />
+          <h2 className="text-xl font-bold">Cargando disponibilidad...</h2>
+        </div>
+        <Footer />
+      </main>
+    }>
+      <SeatsContent />
+    </Suspense>
   )
 }
