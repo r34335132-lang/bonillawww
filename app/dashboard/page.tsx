@@ -16,22 +16,18 @@ export default function DashboardPage() {
   const router = useRouter()
   const [activeTab, setActiveTab] = useState('upcoming')
   
-  // Estados de Autenticación y Datos
   const [user, setUser] = useState<any>(null)
   const [isLoading, setIsLoading] = useState(true)
   
-  // Agrupamos los tickets reales que vienen de la BD
   const [tickets, setTickets] = useState({
     upcoming: [] as any[],
     completed: [] as any[],
     cancelled: [] as any[]
   })
 
-  // EFECTO PRINCIPAL: Verificar sesión y traer los boletos de Supabase
   useEffect(() => {
     const loadDashboardData = async () => {
       try {
-        // 1. Verificar Sesión
         const { data: { session } } = await supabase.auth.getSession()
         if (!session) {
           router.push('/auth')
@@ -39,8 +35,7 @@ export default function DashboardPage() {
         }
         setUser(session.user)
 
-        // 2. Traer los boletos (bookings) del usuario, cruzando datos con la tabla de viajes (trips)
-        // Nota: Asumimos que guardas el 'user_id' o 'email' en la tabla bookings.
+        // IMPORTANTE: Buscamos por passenger_email que es como lo guardas en Supabase
         const { data: bookingsData, error } = await supabase
           .from('bookings')
           .select(`
@@ -49,33 +44,47 @@ export default function DashboardPage() {
             seats, 
             passenger_name, 
             created_at,
+            origin,
+            destination,
+            is_round_trip,
+            is_15_days,
             trips (
               id,
-              origin,
-              destination,
               date,
               departure_time
             )
           `)
-          .eq('email', session.user.email) // O .eq('user_id', session.user.id) dependiendo de tu BD
+          .eq('passenger_email', session.user.email) 
 
         if (!error && bookingsData) {
-          // 3. Formateamos los datos para que la TicketCard los pueda leer
-          const formattedTickets = bookingsData.map((b: any) => ({
-            id: b.id,
-            tripId: b.trips?.id || '',
-            origin: b.trips?.origin || 'Desconocido',
-            destination: b.trips?.destination || 'Desconocido',
-            departureDate: b.trips?.date || b.created_at,
-            departureTime: b.trips?.departure_time || '--:--',
-            // Los asientos vienen como arreglo [1, 2], los convertimos a texto
-            seatNumber: Array.isArray(b.seats) ? b.seats.join(', ') : b.seats,
-            passengerName: b.passenger_name || session.user.user_metadata?.full_name || 'Pasajero',
-            // Mapeamos estados de la BD a los de la UI
-            status: b.status === 'paid' || b.status === 'active' ? 'upcoming' : b.status, 
-            qrCode: b.id, // Usamos el ID de la reserva como QR
-            price: 0
-          }))
+          const formattedTickets = bookingsData.map((b: any) => {
+            let tipoStr = 'Sencillo'
+            if (b.is_15_days) tipoStr = 'Paquete 15 Días'
+            else if (b.is_round_trip) tipoStr = 'Viaje Redondo'
+
+            // Ajustamos el estado para que coincida con las pestañas
+            let uiStatus = b.status
+            if (b.status === 'confirmed' || b.status === 'paid' || b.status === 'pending') {
+              uiStatus = 'upcoming'
+            } else if (b.status === 'boarded') {
+              uiStatus = 'completed'
+            }
+
+            return {
+              id: b.id,
+              tripId: b.trips?.id || '',
+              origin: b.origin || 'Desconocido',
+              destination: b.destination || 'Desconocido',
+              departureDate: b.trips?.date || b.created_at,
+              departureTime: b.trips?.departure_time || '--:--',
+              seatNumber: Array.isArray(b.seats) ? b.seats.join(', ') : b.seats,
+              passengerName: b.passenger_name || session.user.user_metadata?.name || 'Pasajero',
+              status: uiStatus, 
+              qrCode: b.id,
+              price: 0,
+              type: tipoStr // Opcional, por si lo quieres mostrar en la UI
+            }
+          })
 
           setTickets({
             upcoming: formattedTickets.filter(t => t.status === 'upcoming'),
@@ -93,14 +102,12 @@ export default function DashboardPage() {
     loadDashboardData()
   }, [router])
 
-  // Lógica para cerrar sesión
   const handleSignOut = async () => {
     await supabase.auth.signOut()
     router.push('/')
     router.refresh()
   }
 
-  // Si está cargando, mostramos un loader
   if (isLoading) {
     return (
       <main className="min-h-screen bg-background flex flex-col">
@@ -113,17 +120,15 @@ export default function DashboardPage() {
     )
   }
 
-  // Si por alguna razón no hay usuario (prevención de destellos visuales antes del redirect)
   if (!user) return null
 
-  // Cálculo de estadísticas
   const stats = [
     { label: 'Viajes Próximos', value: tickets.upcoming.length, icon: Clock, color: 'text-primary' },
     { label: 'Viajes Completados', value: tickets.completed.length, icon: CheckCircle2, color: 'text-green-600' },
     { label: 'Cancelados', value: tickets.cancelled.length, icon: XCircle, color: 'text-destructive' },
   ]
 
-  const userName = user.user_metadata?.full_name || user.user_metadata?.name || 'Viajero Bonilla'
+  const userName = user.user_metadata?.name || user.user_metadata?.full_name || 'Viajero'
 
   return (
     <main className="min-h-screen bg-background">
@@ -132,14 +137,13 @@ export default function DashboardPage() {
       <div className="mx-auto max-w-7xl px-4 pt-24 pb-12 sm:px-6 lg:px-8">
         <div className="flex flex-col gap-8 lg:flex-row">
           
-          {/* SIDEBAR (Columna Izquierda) */}
+          {/* SIDEBAR */}
           <motion.aside
             initial={{ opacity: 0, x: -20 }}
             animate={{ opacity: 1, x: 0 }}
             className="lg:w-72"
           >
             <div className="bg-card border border-border/50 shadow-sm rounded-[2rem] p-6">
-              {/* Información del Usuario Dinámica */}
               <div className="mb-6 flex items-center gap-4">
                 <div className="flex h-14 w-14 items-center justify-center rounded-full bg-primary/10 shrink-0">
                   <User className="h-7 w-7 text-primary" />
@@ -150,7 +154,6 @@ export default function DashboardPage() {
                 </div>
               </div>
 
-              {/* Estadísticas Rápidas */}
               <div className="mb-6 grid grid-cols-3 gap-2">
                 {stats.map((stat) => (
                   <div key={stat.label} className="rounded-2xl bg-muted/40 p-3 text-center border border-border/30">
@@ -161,7 +164,6 @@ export default function DashboardPage() {
                 ))}
               </div>
 
-              {/* Menú de Navegación Lateral */}
               <nav className="space-y-1">
                 <button className="flex w-full items-center gap-3 rounded-xl bg-primary/10 px-4 py-3 text-primary font-bold">
                   <Ticket className="h-5 w-5" />
@@ -181,7 +183,6 @@ export default function DashboardPage() {
               </nav>
             </div>
 
-            {/* Tarjeta de Call to Action */}
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
@@ -201,7 +202,7 @@ export default function DashboardPage() {
             </motion.div>
           </motion.aside>
 
-          {/* CONTENIDO PRINCIPAL (Lista de Boletos) */}
+          {/* CONTENIDO PRINCIPAL */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -274,7 +275,6 @@ export default function DashboardPage() {
   )
 }
 
-// Componente para cuando no hay resultados en la pestaña
 function EmptyState({ title, description }: { title: string; description: string }) {
   return (
     <div className="bg-card border border-dashed border-border/60 rounded-[2rem] p-12 text-center shadow-sm">
