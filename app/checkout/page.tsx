@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Header } from '@/components/header'
 import { Footer } from '@/components/footer'
@@ -12,7 +12,8 @@ import { supabase } from '@/lib/supabase'
 import { ArrowLeft, User, CreditCard, Ticket, Clock, CheckCircle } from 'lucide-react'
 import { toast } from 'sonner'
 
-export default function CheckoutPage() {
+// Separamos el contenido que usa useSearchParams() en su propio componente
+function CheckoutContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
 
@@ -64,7 +65,7 @@ export default function CheckoutPage() {
           name: profile?.name || session.user.user_metadata?.name || '',
           email: session.user.email || '',
         }))
-        // Aunque esté logueado, mantenemos el step en 'details' para que pueda confirmar o editar sus datos
+        // Mantenemos el step en 'details' para que el usuario logueado pueda confirmar sus datos
         setStep('details')
       }
     }
@@ -96,7 +97,6 @@ export default function CheckoutPage() {
       // 1. Crear el boleto de ida
       const bookingRef = "BT-" + Math.floor(100000 + Math.random() * 900000).toString().slice(0, 6);
       
-      // Creamos el registro base en status pending
       const { data: bookingData, error: bookingError } = await supabase
         .from('bookings')
         .insert({
@@ -125,7 +125,6 @@ export default function CheckoutPage() {
       let returnTripId = null;
 
       if ((isRoundTrip || is15Days) && returnDate) {
-        
         // A. Buscar si ya existe el viaje de regreso
         const { data: existingTrips } = await supabase
           .from('trips')
@@ -138,8 +137,7 @@ export default function CheckoutPage() {
         if (existingTrips && existingTrips.length > 0) {
           returnTripId = existingTrips[0].id;
         } else {
-          // B. Si el viaje no existe, lo creamos (TRUCO: Sumamos 2 horas para compensar zona horaria)
-          // Obtenemos el precio y datos base del viaje de ida para clonarlos
+          // B. Si el viaje no existe, lo creamos sumando 2 horas
           const { data: tripData } = await supabase.from('trips').select('*').eq('id', tripId).single()
           
           const { data: newTrip, error: tripError } = await supabase
@@ -148,8 +146,8 @@ export default function CheckoutPage() {
               origin: destination?.trim(),
               destination: origin?.trim(),
               date: returnDate,
-              departure_time: '22:00', // Guardamos 22:00 para que quede a las 20:00 (8 PM)
-              arrival_time: '08:00',   // Guardamos 08:00 para que quede a las 06:00 (6 AM)
+              departure_time: '22:00', // Guardamos 22:00 para compensar
+              arrival_time: '08:00',   
               price: tripData?.price || 0,
               available_seats: tripData?.total_seats || 40,
               total_seats: tripData?.total_seats || 40,
@@ -174,17 +172,17 @@ export default function CheckoutPage() {
               booking_ref: returnBookingRef,
               trip_id: returnTripId,
               user_id: user?.id || null,
-              seats: seats.map(s => parseInt(s)), // Mismos asientos
+              seats: seats.map(s => parseInt(s)), 
               passenger_name: formData.name,
               passenger_email: formData.email,
               passenger_phone: formData.phone,
               payment_method: paymentMethod === 'card' ? 'card' : 'cash',
               status: 'pending', 
               is_guest: !user,
-              total_price: 0, // <-- IMPORTANTE: Boleto de regreso a $0
+              total_price: 0, 
               origin: destination?.trim(),
               destination: origin?.trim(),
-              is_round_trip: true, // Siempre true para el duplicado
+              is_round_trip: true, 
               is_15_days: is15Days
             });
         }
@@ -195,11 +193,10 @@ export default function CheckoutPage() {
             return_trip_id: returnTripId 
           }).eq('id', bookingData.id);
         }
-      } // Fin de lógica de regreso
+      }
 
       // 3. Procesar el pago o la reserva
       if (paymentMethod === 'card') {
-        // Redirigir a Clip (Usaremos la misma Edge Function que la app móvil)
         try {
           const unitPrice = totalPrice / seats.length;
           const tipoViajeStr = is15Days ? 'Paquete 15 Días' : isRoundTrip ? 'Redondo' : 'Sencillo';
@@ -218,9 +215,8 @@ export default function CheckoutPage() {
           if (data && data.ok === false) throw new Error(`Clip rechazó el pago: ${data.error}`);
           if (!data?.payment_url) throw new Error("No se recibió el link de pago.");
           
-          // Redirigir al usuario al checkout de Clip
           window.location.href = data.payment_url;
-          return; // Detenemos aquí porque el usuario se va a Clip. El webhook confirmará el pago.
+          return; 
 
         } catch (clipError: any) {
           console.error("Error al iniciar Clip:", clipError);
@@ -230,7 +226,6 @@ export default function CheckoutPage() {
         }
 
       } else {
-        // Reserva (Pago en Taquilla) - Se queda en pending y redirigimos a success
         router.push(`/checkout/success?bookingId=${bookingData.id}&clip_ref=${bookingData.id}&name=${encodeURIComponent(formData.name)}&origin=${encodeURIComponent(origin || '')}&destination=${encodeURIComponent(destination || '')}&date=${encodeURIComponent(date || '')}&time=${encodeURIComponent(time || '')}&seats=${seats.join(',')}&price=${totalPrice}&status=pending`)
       }
 
@@ -477,5 +472,19 @@ export default function CheckoutPage() {
 
       <Footer />
     </main>
+  )
+}
+
+// Ahora exportamos el componente principal envuelto en <Suspense> para arreglar el error de Vercel (Next.js)
+export default function CheckoutPageWrapper() {
+  return (
+    <Suspense fallback={
+      <main className="min-h-screen bg-gray-50 flex flex-col items-center justify-center">
+        <div className="animate-spin size-8 border-4 border-primary border-t-transparent rounded-full mb-4" />
+        <p className="text-gray-500 font-medium">Preparando pago...</p>
+      </main>
+    }>
+      <CheckoutContent />
+    </Suspense>
   )
 }
