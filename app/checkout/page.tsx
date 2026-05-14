@@ -19,7 +19,6 @@ function CheckoutContent() {
   const [loading, setLoading] = useState(false)
   const [user, setUser] = useState<any>(null)
   
-  // Trip details from URL
   const tripId = searchParams.get('tripId')
   const date = searchParams.get('date')
   const time = searchParams.get('time')
@@ -113,27 +112,29 @@ function CheckoutContent() {
         .select()
         .single()
 
-      if (bookingError) throw bookingError
+      if (bookingError) throw new Error(`Falló el boleto de ida: ${bookingError.message}`)
 
-      // 2. Lógica para el BOLETO DUPLICADO DE REGRESO
-      let returnTripId = null;
+      // 2. Lógica FUERTE para el BOLETO DE REGRESO
+      if (isRoundTrip || is15Days) {
+        let returnTripId = null;
 
-      let finalReturnDate = returnDate && returnDate !== 'undefined' && returnDate !== 'null' ? returnDate : null;
-      if ((is15Days || isRoundTrip) && !finalReturnDate) {
-        let d = new Date();
-        if (date && date !== 'undefined' && date !== 'null') {
-           const [year, month, day] = date.split('-');
-           if (year && month && day) d = new Date(Number(year), Number(month) - 1, Number(day));
+        // Validar fecha de regreso
+        let finalReturnDate = returnDate && returnDate !== 'undefined' && returnDate !== 'null' ? returnDate : null;
+        if (!finalReturnDate) {
+          let d = new Date();
+          if (date && date !== 'undefined' && date !== 'null') {
+             const [year, month, day] = date.split('-');
+             if (year && month && day) d = new Date(Number(year), Number(month) - 1, Number(day));
+          }
+          d.setDate(d.getDate() + (is15Days ? 15 : 1)); 
+          const y = d.getFullYear();
+          const m = String(d.getMonth() + 1).padStart(2, '0');
+          const dd = String(d.getDate()).padStart(2, '0');
+          finalReturnDate = `${y}-${m}-${dd}`;
         }
-        d.setDate(d.getDate() + (is15Days ? 15 : 1)); 
-        const y = d.getFullYear();
-        const m = String(d.getMonth() + 1).padStart(2, '0');
-        const dd = String(d.getDate()).padStart(2, '0');
-        finalReturnDate = `${y}-${m}-${dd}`;
-      }
 
-      if ((isRoundTrip || is15Days) && finalReturnDate) {
-        const { data: existingTrips } = await supabase
+        // A. Buscar viaje de regreso existente
+        const { data: existingTrips, error: searchTripError } = await supabase
           .from('trips')
           .select('id')
           .eq('date', finalReturnDate)
@@ -141,10 +142,12 @@ function CheckoutContent() {
           .eq('destination', origin?.trim() || '')
           .limit(1);
 
+        if (searchTripError) throw new Error(`Falló al buscar camión de regreso: ${searchTripError.message}`);
+
         if (existingTrips && existingTrips.length > 0) {
           returnTripId = existingTrips[0].id;
         } else {
-          // CLONAMOS TODOS LOS CAMPOS QUE EXIGE LA BASE DE DATOS
+          // B. Si no existe, CREAR EL VIAJE DE REGRESO
           const { data: tripData } = await supabase.from('trips').select('*').eq('id', tripId).single()
           
           const { data: newTrip, error: tripError } = await supabase
@@ -153,33 +156,29 @@ function CheckoutContent() {
               origin: destination?.trim() || '',
               destination: origin?.trim() || '',
               date: finalReturnDate,
-              departure_time: '22:00', // 10 PM para compensar zona horaria a 8 PM
+              departure_time: '22:00', // Guardamos 22:00 para que ajuste la zona horaria
               arrival_time: '08:00',   
-              duration: tripData?.duration || "Automático Regreso", // DATO FALTANTE
+              duration: tripData?.duration || "Automático Regreso",
               price: tripData?.price || 0,
-              prices: {}, // DATO FALTANTE
-              round_trip_prices: {}, // DATO FALTANTE
+              prices: {}, 
+              round_trip_prices: {}, 
               price_15_days: tripData?.price_15_days || 0,
               available_seats: tripData?.total_seats || 40,
               total_seats: tripData?.total_seats || 40,
-              occupied_seats: [], // DATO FALTANTE
+              occupied_seats: [], 
               bus_type: tripData?.bus_type || "Estándar",
               amenities: tripData?.amenities || []
             })
             .select('id')
             .single();
 
-          if (!tripError && newTrip) {
-            returnTripId = newTrip.id;
-          } else {
-            console.error("No se pudo crear viaje de regreso", tripError);
-            toast.error(`Aviso: Hubo un error de BD al generar el camión de regreso (${tripError?.message}). Se procesará solo el boleto de ida.`);
-          }
+          if (tripError) throw new Error(`Falló crear camión de regreso: ${tripError.message}`);
+          returnTripId = newTrip.id;
         }
 
-        // Duplicar el boleto a costo $0 con la ruta inversa
+        // C. Crear el Boleto Duplicado ($0)
         if (returnTripId) {
-          const returnBookingRef = "BT-R" + Math.floor(100000 + Math.random() * 900000).toString().slice(0, 5);
+          const returnBookingRef = bookingRef + "-R"; // Misma referencia terminada en "-R"
           
           const { error: returnBookingError } = await supabase
             .from('bookings')
@@ -194,58 +193,53 @@ function CheckoutContent() {
               payment_method: paymentMethod === 'card' ? 'card' : 'cash',
               status: 'pending', 
               is_guest: !user,
-              total_price: 0, 
+              total_price: 0, // Boleto de regreso a costo $0
               origin: destination?.trim(),
               destination: origin?.trim(),
-              is_round_trip: isRoundTrip, 
+              is_round_trip: true, // El regreso siempre se marca como parte de redondo
               is_15_days: is15Days
             });
             
-            if (returnBookingError) console.error("Error duplicando boleto", returnBookingError)
+          if (returnBookingError) throw new Error(`Falló generar boleto de regreso: ${returnBookingError.message}`);
 
-            await supabase.from('bookings').update({ 
-              return_trip_id: returnTripId 
-            }).eq('id', bookingData.id);
+          // D. Ligar ida con regreso
+          const { error: updateError } = await supabase.from('bookings').update({ 
+            return_trip_id: returnTripId 
+          }).eq('id', bookingData.id);
+
+          if (updateError) throw new Error(`Falló ligar ambos boletos: ${updateError.message}`);
         }
       }
 
-      // 3. Procesar el pago o la reserva
+      // 3. Procesar Pago o Redirigir a Éxito (Si todo lo de arriba fue bien)
       if (paymentMethod === 'card') {
-        try {
-          const unitPrice = totalPrice / seats.length;
-          const tipoViajeStr = is15Days ? 'Paquete 15 Días' : isRoundTrip ? 'Redondo' : 'Sencillo';
-          
-          const { data, error } = await supabase.functions.invoke('create-clip-payment', {
-            body: {
-              title: `Viaje ${tipoViajeStr}: ${origin} a ${destination}`,
-              quantity: seats.length,
-              price: unitPrice,
-              email: formData.email,
-              bookingId: bookingData.id 
-            }
-          });
+        const unitPrice = totalPrice / seats.length;
+        const tipoViajeStr = is15Days ? 'Paquete 15 Días' : isRoundTrip ? 'Redondo' : 'Sencillo';
+        
+        const { data, error } = await supabase.functions.invoke('create-clip-payment', {
+          body: {
+            title: `Viaje ${tipoViajeStr}: ${origin} a ${destination}`,
+            quantity: seats.length,
+            price: unitPrice,
+            email: formData.email,
+            bookingId: bookingData.id 
+          }
+        });
 
-          if (error) throw new Error(`Conexión fallida con Clip: ${error.message}`);
-          if (data && data.ok === false) throw new Error(`Clip rechazó el pago: ${data.error}`);
-          if (!data?.payment_url) throw new Error("No se recibió el link de pago.");
-          
-          window.location.href = data.payment_url;
-          return; 
-
-        } catch (clipError: any) {
-          console.error("Error al iniciar Clip:", clipError);
-          toast.error("Hubo un problema al conectar con el procesador de pagos. Puedes intentar reservar pagando en taquilla.");
-          setLoading(false);
-          return;
-        }
-
+        if (error) throw new Error(`Conexión fallida con Clip: ${error.message}`);
+        if (data && data.ok === false) throw new Error(`Clip rechazó el pago: ${data.error}`);
+        if (!data?.payment_url) throw new Error("No se recibió el link de pago.");
+        
+        window.location.href = data.payment_url;
+        return; 
       } else {
         router.push(`/checkout/success?bookingId=${bookingData.id}&clip_ref=${bookingData.id}&name=${encodeURIComponent(formData.name)}&origin=${encodeURIComponent(origin || '')}&destination=${encodeURIComponent(destination || '')}&date=${encodeURIComponent(date || '')}&time=${encodeURIComponent(time || '')}&seats=${seats.join(',')}&price=${totalPrice}&status=pending`)
       }
 
     } catch (error: any) {
-      console.error('Error booking trip:', error)
-      toast.error('Ocurrió un error al procesar tu reserva. Intenta de nuevo.')
+      console.error('Error procesando reserva:', error)
+      // ESTE ES EL AVISO CLAVE QUE TE DIRÁ QUÉ FALLA EN LA BASE DE DATOS
+      toast.error(`Error: ${error.message || 'Ocurrió un error al procesar tu reserva.'}`)
     } finally {
       setLoading(false)
     }
@@ -398,7 +392,7 @@ function CheckoutContent() {
                   ) : isRoundTrip ? (
                      <div className="flex justify-between text-sm">
                       <span className="text-gray-500">Regreso:</span>
-                      <span className="font-semibold text-primary">{returnDate}</span>
+                      <span className="font-semibold text-primary">{returnDate || "Por Definir"}</span>
                     </div>
                   ) : (
                      <div className="flex justify-between text-sm">
