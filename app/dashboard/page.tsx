@@ -35,7 +35,9 @@ export default function DashboardPage() {
         }
         setUser(session.user)
 
-        // IMPORTANTE: Buscamos por passenger_email que es como lo guardas en Supabase
+        // CORRECCIÓN CLAVE: Usar la relación explícita "!bookings_trip_id_fkey" 
+        // ya que la tabla bookings tiene 2 llaves foráneas hacia trips (trip_id y return_trip_id)
+        // Además, usamos .or() para que busque por ID o por correo para mayor seguridad
         const { data: bookingsData, error } = await supabase
           .from('bookings')
           .select(`
@@ -48,13 +50,18 @@ export default function DashboardPage() {
             destination,
             is_round_trip,
             is_15_days,
-            trips (
+            trip:trips!bookings_trip_id_fkey (
               id,
               date,
               departure_time
             )
           `)
-          .eq('passenger_email', session.user.email) 
+          .or(`user_id.eq.${session.user.id},passenger_email.ilike.${session.user.email}`)
+          .order('created_at', { ascending: false })
+
+        if (error) {
+          console.error("Error al obtener los viajes de Supabase:", error.message)
+        }
 
         if (!error && bookingsData) {
           const formattedTickets = bookingsData.map((b: any) => {
@@ -70,19 +77,30 @@ export default function DashboardPage() {
               uiStatus = 'completed'
             }
 
+            // Procesar los asientos para mostrarlos en texto
+            let seatsText = 'N/A'
+            if (Array.isArray(b.seats) && b.seats.length > 0) {
+                seatsText = b.seats.join(', ')
+            } else if (typeof b.seats === 'string') {
+                seatsText = b.seats
+            }
+
+            // Dependiendo de cómo devuelva Supabase la relación, extraemos la info
+            const tripInfo = Array.isArray(b.trip) ? b.trip[0] : b.trip
+
             return {
               id: b.id,
-              tripId: b.trips?.id || '',
+              tripId: tripInfo?.id || '',
               origin: b.origin || 'Desconocido',
               destination: b.destination || 'Desconocido',
-              departureDate: b.trips?.date || b.created_at,
-              departureTime: b.trips?.departure_time || '--:--',
-              seatNumber: Array.isArray(b.seats) ? b.seats.join(', ') : b.seats,
+              departureDate: tripInfo?.date || new Date(b.created_at).toLocaleDateString(),
+              departureTime: tripInfo?.departure_time || '--:--',
+              seatNumber: seatsText,
               passengerName: b.passenger_name || session.user.user_metadata?.name || 'Pasajero',
               status: uiStatus, 
               qrCode: b.id,
               price: 0,
-              type: tipoStr // Opcional, por si lo quieres mostrar en la UI
+              type: tipoStr
             }
           })
 
