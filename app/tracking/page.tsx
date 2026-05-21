@@ -8,16 +8,37 @@ import { Footer } from '@/components/footer'
 import { TrackingTimeline } from '@/components/tracking-timeline'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { mockPackage } from '@/lib/data'
+import { supabase } from '@/lib/supabase'
+
+// Definimos la estructura del resultado que usará la interfaz
+interface PackageEvent {
+  status: 'completed' | 'current' | 'pending';
+  description: string;
+  location: string;
+  date: string;
+  time: string;
+}
+
+interface PackageResult {
+  trackingNumber: string;
+  status: 'received' | 'in_transit' | 'arrived' | 'delivered';
+  origin: string;
+  destination: string;
+  weight: string;
+  description: string;
+  timeline: PackageEvent[];
+}
 
 export default function TrackingPage() {
   const [trackingNumber, setTrackingNumber] = useState('')
   const [isSearching, setIsSearching] = useState(false)
-  const [result, setResult] = useState<typeof mockPackage | null>(null)
+  const [result, setResult] = useState<PackageResult | null>(null)
   const [error, setError] = useState('')
 
   const handleSearch = async () => {
-    if (!trackingNumber.trim()) {
+    const trimmedTracking = trackingNumber.trim().toUpperCase();
+    
+    if (!trimmedTracking) {
       setError('Ingresa un número de guía')
       return
     }
@@ -26,24 +47,117 @@ export default function TrackingPage() {
     setError('')
     setResult(null)
 
-    // Simulate API call
-    await new Promise((resolve) => setTimeout(resolve, 1500))
+    try {
+      // Extraemos solo el número del formato PAQ-123
+      let folioNumber = trimmedTracking;
+      if (trimmedTracking.startsWith('PAQ-')) {
+        folioNumber = trimmedTracking.replace('PAQ-', '');
+      }
 
-    // For demo purposes, show result for any tracking number that starts with "BT"
-    if (trackingNumber.toUpperCase().startsWith('BT')) {
-      setResult({ ...mockPackage, trackingNumber: trackingNumber.toUpperCase() })
-    } else {
-      setError('No encontramos ningún paquete con ese número de guía')
+      const folioInt = parseInt(folioNumber, 10);
+
+      if (isNaN(folioInt)) {
+        setError('Formato de guía no válido. Usa el formato PAQ-123')
+        setIsSearching(false)
+        return
+      }
+
+      // Consulta a la base de datos de Supabase
+      const { data, error: sbError } = await supabase
+        .from('parcels')
+        .select('*')
+        .eq('folio', folioInt)
+        .single()
+
+      if (sbError || !data) {
+        setError('No encontramos ningún paquete con ese número de guía')
+        setIsSearching(false)
+        return
+      }
+
+      // Mapeamos el estado de la base de datos al estado de la interfaz
+      let mappedStatus: PackageResult['status'] = 'received';
+      if (data.status === 'en_transito') mappedStatus = 'in_transit';
+      if (data.status === 'entregado') mappedStatus = 'delivered';
+
+      // Creamos la fecha formateada de cuando se registró el paquete
+      const creationDate = new Date(data.created_at);
+      const dateStr = creationDate.toLocaleDateString('es-MX');
+      const timeStr = creationDate.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
+
+      // Generamos una línea de tiempo dinámica en base al estado
+      const timeline: PackageEvent[] = [
+        {
+          status: 'completed',
+          description: 'Paquete recibido en oficina',
+          location: data.origin,
+          date: dateStr,
+          time: timeStr
+        }
+      ];
+
+      // Paso 2: En tránsito
+      if (data.status === 'en_transito' || data.status === 'entregado') {
+        timeline.push({
+          status: data.status === 'entregado' ? 'completed' : 'current',
+          description: 'Paquete en ruta hacia su destino',
+          location: `Viajando a ${data.destination}`,
+          date: data.status === 'entregado' ? 'Completado' : 'Actualizando...',
+          time: '--:--'
+        });
+      } else {
+        timeline.push({
+          status: 'pending',
+          description: 'Salida de autobús programada',
+          location: data.origin,
+          date: 'Pendiente',
+          time: '--:--'
+        });
+      }
+
+      // Paso 3: Entregado
+      if (data.status === 'entregado') {
+        timeline.push({
+          status: 'completed',
+          description: 'Llegó a sucursal de destino',
+          location: data.destination,
+          date: 'Completado',
+          time: '--:--'
+        });
+      } else {
+        timeline.push({
+          status: 'pending',
+          description: 'Llegada a sucursal de destino',
+          location: data.destination,
+          date: 'Pendiente',
+          time: '--:--'
+        });
+      }
+
+      // Actualizamos el resultado en la pantalla
+      setResult({
+        trackingNumber: `PAQ-${data.folio}`,
+        status: mappedStatus,
+        origin: data.origin,
+        destination: data.destination,
+        weight: 'No especificado', // Puedes añadir peso a tu BD después si lo requieres
+        description: `A nombre de: ${data.receiver_name} (Enviado por: ${data.sender_name})`,
+        timeline: timeline
+      });
+
+    } catch (err) {
+      console.error(err);
+      setError('Hubo un error al intentar buscar tu paquete. Intenta de nuevo.')
     }
 
     setIsSearching(false)
   }
 
   const statusLabels = {
-    received: { label: 'Recibido', color: 'bg-blue-500' },
+    received: { label: 'En Bodega', color: 'bg-blue-500' },
     in_transit: { label: 'En Tránsito', color: 'bg-amber-500' },
     arrived: { label: 'En Terminal', color: 'bg-emerald-500' },
-    delivered: { label: 'Entregado', color: 'bg-green-600' },
+    delivered: { label: 'Llegó a Destino', color: 'bg-green-600' },
   }
 
   return (
@@ -78,7 +192,7 @@ export default function TrackingPage() {
               <div className="relative flex-1">
                 <Package className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
                 <Input
-                  placeholder="Ej: BT-2026-0512-MX"
+                  placeholder="Ej: PAQ-123"
                   value={trackingNumber}
                   onChange={(e) => {
                     setTrackingNumber(e.target.value)
@@ -107,11 +221,6 @@ export default function TrackingPage() {
                 )}
               </Button>
             </div>
-
-            {/* Demo hint */}
-            <p className="mt-3 text-center text-sm text-muted-foreground">
-              Prueba con: <button onClick={() => setTrackingNumber('BT-2026-0512-MX')} className="font-medium text-primary hover:underline">BT-2026-0512-MX</button>
-            </p>
           </div>
         </motion.div>
 
@@ -194,7 +303,7 @@ export default function TrackingPage() {
                   </div>
                   <div className="flex items-center gap-2 rounded-lg bg-muted/50 px-3 py-2">
                     <FileText className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-sm text-muted-foreground">Contenido: </span>
+                    <span className="text-sm text-muted-foreground">Pasajeros: </span>
                     <span className="text-sm font-medium text-foreground">{result.description}</span>
                   </div>
                 </div>
@@ -233,7 +342,7 @@ export default function TrackingPage() {
               {
                 icon: Search,
                 title: 'Actualizaciones',
-                description: 'Recibe notificaciones del estado de tu paquete',
+                description: 'Conoce exactamente dónde se encuentra tu paquete',
               },
             ].map((item) => (
               <div key={item.title} className="glass-card rounded-xl p-5 text-center">
