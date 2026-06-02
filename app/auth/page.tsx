@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
-import { ArrowLeft, Bus, Lock, Mail, User, Loader2 } from 'lucide-react'
+import { ArrowLeft, Bus, Lock, Mail, User, Phone, Loader2 } from 'lucide-react'
 import { Header } from '@/components/header'
 import { Footer } from '@/components/footer'
 import { Button } from '@/components/ui/button'
@@ -15,9 +15,11 @@ export default function AuthPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [errorMsg, setErrorMsg] = useState('')
   
+  // 1. AÑADIMOS EL TELÉFONO AL ESTADO INICIAL
   const [formData, setFormData] = useState({
     name: '',
     email: '',
+    phone: '',
     password: '',
   })
 
@@ -50,13 +52,14 @@ export default function AuthPage() {
           password: formData.password,
           options: {
             data: {
-              name: formData.name, // <-- CAMBIO APLICADO AQUÍ: 'name' en lugar de 'full_name'
+              name: formData.name,
+              phone: formData.phone, // 2. AHORA ENVIAMOS EL TELÉFONO IGUAL QUE EN LA APP MÓVIL
             }
           }
         })
         if (error) throw error
         
-        // Mostrar mensaje de confirmación de correo (dependiendo de tu config de Supabase)
+        // Mostrar mensaje de confirmación de correo
         alert('¡Registro exitoso! Verifica tu correo electrónico o inicia sesión para continuar.')
         setIsLogin(true) // Cambiar a pestaña de login
       }
@@ -124,23 +127,43 @@ export default function AuthPage() {
               )}
 
               <form onSubmit={handleSubmit} className="space-y-5">
-                {/* Campo Nombre (Solo en Registro) */}
+                
+                {/* CAMPOS SOLO PARA REGISTRO */}
                 {!isLogin && (
-                  <div className="space-y-2">
-                    <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider ml-1">Nombre Completo</label>
-                    <div className="relative">
-                      <User className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
-                      <input 
-                        type="text" 
-                        name="name"
-                        required={!isLogin}
-                        value={formData.name}
-                        onChange={handleChange}
-                        placeholder="Juan Pérez"
-                        className="w-full pl-12 pr-4 py-3.5 rounded-xl border border-border/60 bg-muted/20 focus:bg-background focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all font-medium"
-                      />
+                  <>
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider ml-1">Nombre Completo</label>
+                      <div className="relative">
+                        <User className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+                        <input 
+                          type="text" 
+                          name="name"
+                          required={!isLogin}
+                          value={formData.name}
+                          onChange={handleChange}
+                          placeholder="Ej. Juan Pérez"
+                          className="w-full pl-12 pr-4 py-3.5 rounded-xl border border-border/60 bg-muted/20 focus:bg-background focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all font-medium"
+                        />
+                      </div>
                     </div>
-                  </div>
+
+                    {/* 3. AÑADIMOS EL CAMPO DE TELÉFONO AL FRONTEND */}
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider ml-1">Teléfono</label>
+                      <div className="relative">
+                        <Phone className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+                        <input 
+                          type="tel" 
+                          name="phone"
+                          required={!isLogin}
+                          value={formData.phone}
+                          onChange={handleChange}
+                          placeholder="10 dígitos"
+                          className="w-full pl-12 pr-4 py-3.5 rounded-xl border border-border/60 bg-muted/20 focus:bg-background focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all font-medium"
+                        />
+                      </div>
+                    </div>
+                  </>
                 )}
 
                 {/* Campo Correo */}
