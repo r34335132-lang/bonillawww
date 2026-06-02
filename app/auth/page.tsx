@@ -50,7 +50,7 @@ export default function AuthPage() {
           password: formData.password,
           options: {
             data: {
-              full_name: formData.name, // Guardamos el nombre en los metadatos
+              name: formData.name, // <-- CAMBIO APLICADO AQUÍ: 'name' en lugar de 'full_name'
             }
           }
         })
